@@ -1,23 +1,26 @@
 #!/usr/bin/env node
-// fetch-evm-payload — read EtherHiding-style staged payloads out of EVM
+// fetch-evm-payload - read EtherHiding-style staged payloads out of EVM
 // contract storage via a single eth_call. Safe by construction:
 //   - eth_call is a READ. No gas, no signed tx, no funds at risk.
 //   - The returned bytes are decoded and written to disk for inspection.
 //     They are NEVER executed.
 //
+// Lives alongside examples/etherhiding/ because it is specific to that
+// family. Move to scripts/ when a second blockchain-staged example exists.
+//
 // Usage:
-//   ./scripts/fetch-evm-payload.mjs <contract>
+//   ./examples/etherhiding/fetch-evm-payload.mjs <contract>
 //     [--selector 0x6d4ce63c]                  (default: matches the EtherHiding loader)
 //     [--rpc https://bsc-testnet-rpc.publicnode.com/]
 //     [--block latest]                         (or a hex block number / tag)
 //     [--out /tmp/stageN.js]                   (default: ./<contract>.bin / .js)
-//     [--raw]                                  (skip base64 decode — write the ABI string verbatim)
+//     [--raw]                                  (skip base64 decode - write the ABI string verbatim)
 //     [--json]                                 (machine-readable summary to stdout)
 //
 // Examples:
-//   ./scripts/fetch-evm-payload.mjs 0xA1decFB75C8C0CA28C10517ce56B710baf727d2e
-//   ./scripts/fetch-evm-payload.mjs 0x46790e2... --rpc https://eth.llamarpc.com/
-//   ./scripts/fetch-evm-payload.mjs 0xa1de... --selector 0x12345678 --raw --json
+//   ./examples/etherhiding/fetch-evm-payload.mjs 0xA1decFB75C8C0CA28C10517ce56B710baf727d2e
+//   ./examples/etherhiding/fetch-evm-payload.mjs 0x46790e2... --rpc https://eth.llamarpc.com/
+//   ./examples/etherhiding/fetch-evm-payload.mjs 0xa1de... --selector 0x12345678 --raw --json
 
 import fs from 'fs';
 import path from 'path';

@@ -40,7 +40,7 @@ The chain is delivered via four stages, all staged inside smart contracts on BNB
 3. **Stage 3** — OS-specific payload fetched from `0x46790e2Ac7F3CA5a7D1bfCe312d11E91d23383Ff` (Windows) or `0x68DcE15C1002a2689E19D33A3aE509DD1fEb11A5` (macOS). Inflates a fake "BotGuard" captcha overlay and silently writes the stage-4 command to the victim's clipboard via `navigator.clipboard.writeText`.
 4. **Stage 4** — the OS-specific native command above, executed by the victim themselves after being prompted by the overlay.
 
-Reaper recovered the full plaintext of every JavaScript stage statically. The companion tool `scripts/fetch-evm-payload.mjs` performs the read against contract storage as a single `eth_call`; nothing in the analysis ever runs the malware.
+Reaper recovered the full plaintext of every JavaScript stage statically. The companion tool `examples/etherhiding/fetch-evm-payload.mjs` performs the read against contract storage as a single `eth_call`; nothing in the analysis ever runs the malware.
 
 ### 2.1 Observed live rotation
 
@@ -261,7 +261,7 @@ Both observed Windows hosts match the regex `[a-z]+-voivo-[a-z]+-[a-z]+-[a-z]+\.
 2. **Default scan.** Surfaces the `eval()` and `atob()` calls in the decoded but still-obfuscated source.
 3. **`--rewrite`** (`src/analyzers/stringarray.ts`). Full HTML → base64 → obfuscator.io-string-array static deobfuscation. Recovered 100 % of wrapper call sites on the loader (28/28), and 95 to 96 % on the larger stage-3 inner payloads.
 4. **Dynamic sandbox with `--observe-network`** (`docker/runner.js`). Captures the exact JSON-RPC request the loader would issue, with no real egress and the real second stage never executed.
-5. **`scripts/fetch-evm-payload.mjs`.** Reads each EVM-staged payload out of contract storage via `eth_call`, ABI-decodes the return value, and base64-decodes when the bytes look like base64-encoded JavaScript. Used out-of-band so that neither reaper nor the sandboxed runner ever touches the live infrastructure during static analysis.
+5. **`examples/etherhiding/fetch-evm-payload.mjs`.** Reads each EVM-staged payload out of contract storage via `eth_call`, ABI-decodes the return value, and base64-decodes when the bytes look like base64-encoded JavaScript. Used out-of-band so that neither reaper nor the sandboxed runner ever touches the live infrastructure during static analysis. The script lives alongside the example because it is specific to the EtherHiding family; if a second blockchain-staged sample is added, the tool will likely move back to `scripts/`.
 
 ## 7. Mitigations and detections
 

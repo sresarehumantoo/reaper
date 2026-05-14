@@ -64,7 +64,8 @@ Read the result. It is roughly 30 lines and does one thing: `fetch` against the 
 This step **does make one outbound network call**, to the public BNB testnet RPC, to fetch the dispatcher payload from contract storage. It is a read (`eth_call`, no gas, no signed transaction). You can skip it and use the committed `artifacts/stage2/dispatcher.js` directly.
 
 ```sh
-./scripts/fetch-evm-payload.mjs 0xA1decFB75C8C0CA28C10517ce56B710baf727d2e \
+./examples/etherhiding/fetch-evm-payload.mjs \
+    0xA1decFB75C8C0CA28C10517ce56B710baf727d2e \
     --out /tmp/dispatcher.js
 diff /tmp/dispatcher.js examples/etherhiding/artifacts/stage2/dispatcher.js
 ```

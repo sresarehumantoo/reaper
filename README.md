@@ -134,7 +134,7 @@ reaper examples/etherhiding/sample.html --rewrite /tmp/out
   --dynamic-only --observe-network --timeout 8
 
 # 3. (Optional) Re-fetch the next stage from the live contract
-./scripts/fetch-evm-payload.mjs 0xA1decFB75C8C0CA28C10517ce56B710baf727d2e \
+./examples/etherhiding/fetch-evm-payload.mjs 0xA1decFB75C8C0CA28C10517ce56B710baf727d2e \
   --out /tmp/dispatcher.js
 ```
 
