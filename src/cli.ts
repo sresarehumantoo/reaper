@@ -3,13 +3,57 @@ import { Command } from 'commander';
 import glob from 'fast-glob';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { analyzeFile } from './analyzers';
 import { printFindings } from './reporter/console';
 import { formatJson } from './reporter/json';
 import { analyzeFileInventory, printAnalysis } from './reporter/analysis';
 import { analyzeReachability } from './analyzers/reachability';
 import { printReachability } from './reporter/reachability';
+import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
+import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import type { Finding, ReaperResult, AnalyzerOptions } from './types';
+
+// Expand .html inputs into virtual JS sub-files on disk so every analyzer
+// can treat them as normal inputs. Non-html paths pass through unchanged.
+// Returns a parallel map of expanded-path → origin so callers (e.g. --rewrite)
+// can name outputs after the original .html, not the temp file.
+export interface ExpandedFile {
+  path:        string;             // path the analyzer reads from
+  originPath:  string;             // user-facing source (.html for extracted scripts, same as path for plain JS)
+  originTag:   string | null;      // e.g. "data-uri-0", "script-3", or null for plain JS
+}
+
+function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; tempDir: string | null } {
+  const hasHtml = files.some(isHtmlPath);
+  if (!hasHtml) return {
+    all: files.map(p => ({ path: p, originPath: p, originTag: null })),
+    tempDir: null,
+  };
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reaper-'));
+  const all: ExpandedFile[] = [];
+  for (const f of files) {
+    if (!isHtmlPath(f)) {
+      all.push({ path: f, originPath: f, originTag: null });
+      continue;
+    }
+    const scripts = extractScriptsFromHtml(f);
+    if (scripts.length === 0) continue;
+    for (const s of scripts) {
+      const tag     = s.virtualPath.split('#').pop()!.replace(/\.js$/, '');
+      const outPath = path.join(tempDir, `${path.basename(f, path.extname(f))}.${tag}.js`);
+      fs.writeFileSync(outPath, s.source, 'utf-8');
+      all.push({ path: outPath, originPath: f, originTag: tag });
+    }
+  }
+  return { all, tempDir };
+}
+
+function displayPath(cwd: string, ef: ExpandedFile): string {
+  if (ef.originTag) return `${path.relative(cwd, ef.originPath)}#${ef.originTag}`;
+  return path.relative(cwd, ef.path);
+}
 
 const program = new Command();
 
@@ -24,6 +68,7 @@ program
   .option('-a, --analyze',            'Show full function inventory + reduction report')
   .option('-r, --reachability',       'Cross-scope reachability analysis (eval-aware)')
   .option('-e, --entry <functions>',  'Comma-separated entry point(s) for reachability (e.g. sendCode,init)')
+  .option('-w, --rewrite <dir>',      'Statically deobfuscate (HTML→b64→string-array) and write .deobf.js to <dir>')
   .option('--no-unused-imports',      'Skip unused import analysis')
   .option('--no-unused-vars',         'Skip unused variable/function analysis')
   .option('--no-unreachable',         'Skip unreachable code analysis')
@@ -33,15 +78,63 @@ program
   .action(async (pattern: string, opts) => {
     const cwd: string = path.resolve(opts.cwd);
 
-    const files = await glob(pattern, {
+    const matched = await glob(pattern, {
       cwd,
       absolute: true,
       ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.d.ts'],
     });
 
-    if (files.length === 0) {
+    if (matched.length === 0) {
       console.error(`reaper: no files matched pattern '${pattern}'`);
       process.exit(1);
+    }
+
+    const { all: files } = expandHtmlInputs(matched);
+    if (files.length === 0) {
+      console.error(`reaper: no JS/TS sources found (matched files contained no analysable scripts)`);
+      process.exit(1);
+    }
+
+    // ── Rewrite mode (--rewrite <dir>) ───────────────────────────────────────
+    if (opts.rewrite) {
+      const outDir = path.resolve(opts.rewrite);
+      fs.mkdirSync(outDir, { recursive: true });
+
+      let detected = 0;
+      for (const ef of files) {
+        const src  = fs.readFileSync(ef.path, 'utf-8');
+        const info = detectAndRewriteStringArray(src, ef.path);
+
+        // Output name: derived from origin so HTML-extracted scripts get a
+        // sane name like `sample.data-uri-0.deobf.js`, not the temp-dir mangle.
+        // If the input lives outside cwd (path.relative returns ../../…),
+        // fall back to the basename — flatter and readable.
+        const rel = path.relative(cwd, ef.originPath);
+        const baseRel = rel.startsWith('..')
+          ? path.basename(ef.originPath)
+          : rel;
+        const noExt = baseRel.replace(/\.[jt]sx?$|\.html?$/i, '');
+        const safe  = noExt.replace(/[\\/]/g, '__');
+        const stem  = ef.originTag ? `${safe}.${ef.originTag}` : safe;
+
+        if (info.detected && info.rewritten) {
+          detected++;
+          const out = path.join(outDir, `${stem}.deobf.js`);
+          fs.writeFileSync(out, info.rewritten, 'utf-8');
+          console.log(
+            `${displayPath(cwd, ef)}  →  ${path.relative(cwd, out)}  ` +
+            `(${info.substitutions}/${info.attempted} substitutions, ` +
+            `${info.wrappers.length} wrapper${info.wrappers.length === 1 ? '' : 's'})`
+          );
+        } else {
+          const out = path.join(outDir, `${stem}.js`);
+          fs.writeFileSync(out, src, 'utf-8');
+          const reason = info.error ? `(${info.error})` : '(no obfuscator.io string-array pattern)';
+          console.log(`${displayPath(cwd, ef)}  →  ${path.relative(cwd, out)}  ${reason}`);
+        }
+      }
+      console.log(`\nRewrote ${detected}/${files.length} file(s) to ${path.relative(cwd, outDir)}/`);
+      process.exit(0);
     }
 
     // ── Reachability mode (--reachability) ───────────────────────────────────
@@ -51,11 +144,11 @@ program
         : undefined;
 
       const reports = [];
-      for (const file of files) {
+      for (const ef of files) {
         try {
-          reports.push(analyzeReachability(file, entryPoints));
+          reports.push(analyzeReachability(ef.path, entryPoints));
         } catch (err: any) {
-          console.error(`  error — ${path.relative(cwd, file)}: ${err.message}`);
+          console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
       printReachability(reports, cwd);
@@ -72,11 +165,11 @@ program
     // ── Analysis mode (--analyze) ─────────────────────────────────────────────
     if (opts.analyze) {
       const analyses = [];
-      for (const file of files) {
+      for (const ef of files) {
         try {
-          analyses.push(analyzeFileInventory(file));
+          analyses.push(analyzeFileInventory(ef.path));
         } catch (err: any) {
-          console.error(`  parse error — ${path.relative(cwd, file)}: ${err.message}`);
+          console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
       printAnalysis(analyses, cwd);
@@ -103,11 +196,11 @@ program
     const findings: Finding[] = [];
     const errors: string[] = [];
 
-    for (const file of files) {
+    for (const ef of files) {
       try {
-        findings.push(...analyzeFile(file, options));
+        findings.push(...analyzeFile(ef.path, options));
       } catch (err: any) {
-        errors.push(`${path.relative(cwd, file)}: ${err.message}`);
+        errors.push(`${displayPath(cwd, ef)}: ${err.message}`);
       }
     }
 

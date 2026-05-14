@@ -16,6 +16,9 @@ STATIC=true
 DYNAMIC=true
 TIMEOUT=20
 OUTPUT_DIR=""
+OBSERVE_NETWORK=false
+BLOCK_EVAL=false
+BLOCK_FS=false
 
 usage() {
   cat <<EOF
@@ -26,12 +29,25 @@ Options:
   --dynamic-only       Only run dynamic sandbox execution
   --timeout <sec>      Container wall-clock timeout (default: 20)
   --output-dir <dir>   Write static JSON report to this directory
+
+Sandbox runtime modes (dynamic only):
+  --observe-network    Real egress stays blocked (docker --network none),
+                       but a stub fetch/http/https responder is installed
+                       inside the container so the target script proceeds
+                       past network calls. Lets you see what URLs / methods /
+                       bodies it would have used to fetch second-stage code.
+  --block-eval         eval() and Function() throw after logging — observe
+                       what code the script tries to execute without
+                       actually running it.
+  --block-fs           File-system writes throw after logging.
+
   -h, --help           Show this help
 
 Examples:
   $0 suspicious.js
   $0 malware.js --timeout 30 --output-dir ./reports
   $0 packed.js --static-only
+  $0 etherhiding.js --observe-network --block-eval --timeout 30
 EOF
   exit 1
 }
@@ -39,13 +55,16 @@ EOF
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --static-only)   DYNAMIC=false;         shift ;;
-    --dynamic-only)  STATIC=false;          shift ;;
-    --timeout)       TIMEOUT="$2";          shift 2 ;;
-    --output-dir)    OUTPUT_DIR="$2";       shift 2 ;;
-    -h|--help)       usage ;;
-    -*)              echo "Unknown option: $1"; usage ;;
-    *)               TARGET="$1";           shift ;;
+    --static-only)      DYNAMIC=false;        shift ;;
+    --dynamic-only)     STATIC=false;         shift ;;
+    --timeout)          TIMEOUT="$2";         shift 2 ;;
+    --output-dir)       OUTPUT_DIR="$2";      shift 2 ;;
+    --observe-network)  OBSERVE_NETWORK=true; shift ;;
+    --block-eval)       BLOCK_EVAL=true;      shift ;;
+    --block-fs)         BLOCK_FS=true;        shift ;;
+    -h|--help)          usage ;;
+    -*)                 echo "Unknown option: $1"; usage ;;
+    *)                  TARGET="$1";          shift ;;
   esac
 done
 
@@ -129,6 +148,13 @@ if $DYNAMIC; then
     #   --cap-drop ALL          remove all Linux capabilities
     #   --security-opt          prevent privilege escalation
     #   -v target:ro            target file read-only bind mount
+    # Build runtime mode env-var args
+    RUNTIME_ENV=()
+    if $OBSERVE_NETWORK; then RUNTIME_ENV+=(-e REAPER_OBSERVE_NETWORK=1); echo "    mode    : observe-network (stub responders, real egress still blocked)"; fi
+    if $BLOCK_EVAL;      then RUNTIME_ENV+=(-e REAPER_BLOCK_EVAL=1);      echo "    mode    : block-eval (eval/Function throw after logging)"; fi
+    if $BLOCK_FS;        then RUNTIME_ENV+=(-e REAPER_BLOCK_FS=1);        echo "    mode    : block-fs (writes throw after logging)"; fi
+    echo ""
+
     timeout "$TIMEOUT" docker run \
       --rm \
       --network none \
@@ -141,6 +167,7 @@ if $DYNAMIC; then
       --security-opt no-new-privileges \
       --user 1001:1001 \
       -e "SANDBOX_TIMEOUT=${SANDBOX_TIMEOUT_MS}" \
+      "${RUNTIME_ENV[@]}" \
       -v "${TARGET_ABS}:/sandbox/target.js:ro" \
       "$IMAGE_NAME:$IMAGE_TAG" \
       /sandbox/target.js 2>&1 || {
