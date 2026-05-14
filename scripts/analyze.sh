@@ -128,41 +128,79 @@ if $DYNAMIC; then
     echo "  Sandbox ready."
     echo ""
     echo "  Constraints:"
-    echo "    network : none (no egress)"
-    echo "    memory  : 256 MB"
-    echo "    cpus    : 0.5"
-    echo "    timeout : ${TIMEOUT}s"
-    echo "    user    : sandbox (uid 1001, non-root)"
-    echo "    caps    : all dropped"
+    echo "    network    : none (no egress)"
+    echo "    ipc        : none (no IPC namespace sharing)"
+    echo "    memory     : 256 MB (hard cap, no swap)"
+    echo "    cpus       : 0.5 (half a core)"
+    echo "    pids       : 64 (fork-bomb guard)"
+    echo "    open files : 128 / proc"
+    echo "    procs/uid  : 64"
+    echo "    file size  : 16 MB max (single file)"
+    echo "    core dumps : disabled"
+    echo "    oom-prio   : 1000 (this container killed first under host pressure)"
+    echo "    rootfs     : read-only"
+    echo "    /tmp       : 16 MB tmpfs, noexec/nosuid/nodev"
+    echo "    timeout    : ${TIMEOUT}s wall-clock"
+    echo "    user       : sandbox (uid 1001, non-root)"
+    echo "    caps       : all dropped"
+    echo "    privs      : no-new-privileges"
     echo ""
     echo "  Executing..."
     echo ""
 
     SANDBOX_TIMEOUT_MS=$(( (TIMEOUT - 2) * 1000 ))
 
-    # Run with hardened flags:
-    #   --network none          no network egress
-    #   --memory / --cpus       resource caps
-    #   --read-only             immutable container FS
-    #   --tmpfs /tmp            writable scratch in RAM only (noexec)
-    #   --cap-drop ALL          remove all Linux capabilities
-    #   --security-opt          prevent privilege escalation
-    #   -v target:ro            target file read-only bind mount
-    # Build runtime mode env-var args
+    # Runtime-mode env vars (--observe-network / --block-eval / --block-fs)
     RUNTIME_ENV=()
     if $OBSERVE_NETWORK; then RUNTIME_ENV+=(-e REAPER_OBSERVE_NETWORK=1); echo "    mode    : observe-network (stub responders, real egress still blocked)"; fi
     if $BLOCK_EVAL;      then RUNTIME_ENV+=(-e REAPER_BLOCK_EVAL=1);      echo "    mode    : block-eval (eval/Function throw after logging)"; fi
     if $BLOCK_FS;        then RUNTIME_ENV+=(-e REAPER_BLOCK_FS=1);        echo "    mode    : block-fs (writes throw after logging)"; fi
-    echo ""
+    [ ${#RUNTIME_ENV[@]} -gt 0 ] && echo ""
 
+    # Hardened docker run flags. The clusters:
+    #
+    # Network / IPC isolation:
+    #   --network none           no egress, no inbound
+    #   --ipc=none               no IPC namespace sharing
+    #
+    # Hardware-resource caps (defend host availability):
+    #   --memory / --memory-swap hard memory cap incl. swap
+    #   --cpus                   CPU bandwidth cap
+    #   --pids-limit             total processes/threads in container
+    #   --ulimit nofile          per-process file descriptor cap
+    #   --ulimit nproc           per-uid process cap (additional to pids-limit)
+    #   --ulimit fsize           single-file size cap (bytes); matches tmpfs
+    #   --ulimit core            disable core dumps (avoid mem disclosure)
+    #   --oom-score-adj 1000     under host OOM pressure, kill this first
+    #
+    # Filesystem hardening:
+    #   --read-only              rootfs immutable
+    #   --tmpfs /tmp …,noexec,nosuid,nodev,size=16m   only writable surface
+    #   -v target:ro             target script bind-mounted read-only
+    #
+    # Privilege / kernel-surface hardening:
+    #   --cap-drop ALL           no Linux capabilities
+    #   --security-opt no-new-privileges   block setuid escalation
+    #   --user 1001:1001         non-root inside container too
+    #
+    # Lifecycle:
+    #   --rm                     remove container after exit
+    #   timeout (host)           wall-clock kill; runner.js has an inner kill
     timeout "$TIMEOUT" docker run \
       --rm \
       --network none \
+      --ipc none \
       --memory 256m \
       --memory-swap 256m \
       --cpus 0.5 \
+      --pids-limit 64 \
+      --ulimit nofile=128:128 \
+      --ulimit nproc=64:64 \
+      --ulimit fsize=16777216 \
+      --ulimit core=0 \
+      --oom-score-adj 1000 \
       --read-only \
-      --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+      --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
       --cap-drop ALL \
       --security-opt no-new-privileges \
       --user 1001:1001 \

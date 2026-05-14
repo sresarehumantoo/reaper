@@ -2,6 +2,8 @@
   "name": "reaper",
   "version": "0.1.0",
   "description": "Dead code analyzer for JavaScript and TypeScript",
+  "license": "MIT",
+  "author": "Owen Pierce <owenpierceee@gmail.com>",
   "bin": {
     "reaper": "./dist/cli.js"
   },
