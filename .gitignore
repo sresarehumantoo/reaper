@@ -1,4 +1,5 @@
 node_modules/
 dist/
+build/
 *.js.map
 .DS_Store

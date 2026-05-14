@@ -48,11 +48,12 @@ Originally built to triage JS malware samples - packed payloads, eval layers, ch
 ## Install
 
 ```bash
-npm install
-npm run build      # compiles to dist/
-# or run from source:
+make                  # installs deps, typechecks, compiles to dist/
+# or run from source without building:
 npx tsx src/cli.ts <pattern>
 ```
+
+`make help` lists every available target. The common ones: `make build`, `make typecheck`, `make sandbox` (build the docker analysis image), `make demo` (deobfuscate the bundled EtherHiding fixture end-to-end), `make ci` (typecheck + artifact hash verification).
 
 ## Usage
 
