@@ -1,16 +1,45 @@
 {
   "name": "reaper",
   "version": "0.1.0",
-  "description": "Dead code analyzer for JavaScript and TypeScript",
+  "description": "Dead code and obfuscation analyzer for JavaScript and TypeScript, with a hardened Docker sandbox for dynamic analysis.",
   "license": "MIT",
   "author": "Owen Pierce <owenpierceee@gmail.com>",
+  "homepage": "https://github.com/sresarehumantoo/reaper#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sresarehumantoo/reaper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sresarehumantoo/reaper/issues"
+  },
+  "keywords": [
+    "dead-code",
+    "deobfuscation",
+    "static-analysis",
+    "malware-analysis",
+    "javascript",
+    "typescript",
+    "obfuscator-io",
+    "etherhiding",
+    "sandbox",
+    "security"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "reaper": "./dist/cli.js"
   },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/cli.js && cp src/analyzers/evalscope-worker.cjs dist/analyzers/evalscope-worker.cjs",
     "dev": "tsx src/cli.ts",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build && npx tsc --noEmit"
   },
   "dependencies": {
     "@babel/parser": "^7.24.0",

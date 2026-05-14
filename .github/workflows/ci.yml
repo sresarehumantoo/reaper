@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Minimum permissions — no write access to anything.
+permissions:
+  contents: read
+
+# Cancel an in-flight run for the same ref when a new push lands.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: typecheck + verify artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify committed artifacts have not drifted
+        run: |
+          cd examples/etherhiding
+          sha256sum -c SHA256SUMS
+
+      - name: Smoke-test the deobfuscator end-to-end
+        run: |
+          mkdir -p build/ci
+          npx tsx src/cli.ts examples/etherhiding/sample.html --rewrite build/ci
+          # The deobf output must match the committed artifact bit-for-bit.
+          diff build/ci/examples__etherhiding__sample.data-uri-0.deobf.js \
+               examples/etherhiding/artifacts/stage1/payload.deobf.js
+
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high

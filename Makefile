@@ -42,6 +42,10 @@ install: $(NODE_STAMP)  ## Install npm dependencies
 
 build: $(NODE_STAMP)  ## Compile TypeScript to dist/
 	$(NPX) tsc
+	@chmod +x dist/cli.js
+	@# Copy non-TS runtime files (e.g. the evalscope worker) into dist/.
+	@mkdir -p dist/analyzers
+	@cp src/analyzers/evalscope-worker.cjs dist/analyzers/evalscope-worker.cjs
 
 typecheck: $(NODE_STAMP)  ## Type-check without emitting (CI-friendly)
 	$(NPX) tsc --noEmit

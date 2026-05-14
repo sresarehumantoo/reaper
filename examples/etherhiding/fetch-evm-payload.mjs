@@ -54,11 +54,24 @@ for (let i = 0; i < argv.length; i++) {
 }
 
 if (!/^0x[0-9a-fA-F]{40}$/.test(contract)) {
-  console.error('usage: fetch-evm-payload <0x…40hex contract address> [--selector 0xNNNNNNNN] [--rpc URL] [--block latest|0xN] [--out PATH] [--raw] [--json]');
+  console.error('usage: fetch-evm-payload <0x + 40 hex chars contract address> [--selector 0xNNNNNNNN] [--rpc URL] [--block latest|0xN] [--out PATH] [--raw] [--json]');
   process.exit(2);
 }
 if (!/^0x[0-9a-fA-F]{8}$/.test(selector)) {
   console.error(`bad selector: ${selector} (want 0x + 8 hex chars)`); process.exit(2);
+}
+
+// RPC URL must be http(s). Reject file://, gopher://, ldap://, etc. (SSRF
+// defense — without this, --rpc file:///etc/passwd or --rpc
+// http://169.254.169.254/... could be coerced if this script is ever wrapped
+// in a service). Also reject obvious link-local / loopback metadata targets.
+try {
+  const u = new URL(rpc);
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error(`scheme ${u.protocol} not allowed (use http or https)`);
+  }
+} catch (e) {
+  console.error(`bad --rpc: ${e.message}`); process.exit(2);
 }
 
 // ── eth_call ────────────────────────────────────────────────────────────────
