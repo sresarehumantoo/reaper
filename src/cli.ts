@@ -12,7 +12,12 @@ import { analyzeReachability } from './analyzers/reachability';
 import { printReachability } from './reporter/reachability';
 import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
 import { detectAndRewriteStringArray } from './analyzers/stringarray';
+import { extractIocs } from './analyzers/iocs';
+import { printIocs, formatIocsJson } from './reporter/iocs';
+import { formatSarif } from './reporter/sarif';
+import { parseFile } from './parser';
 import type { Finding, ReaperResult, AnalyzerOptions } from './types';
+import type { IocReport } from './reporter/iocs';
 
 // Expand .html inputs into virtual JS sub-files on disk so every analyzer
 // can treat them as normal inputs. Non-html paths pass through unchanged.
@@ -63,12 +68,13 @@ program
   .description('Dead code & obfuscation analyzer for JavaScript and TypeScript')
   .version('0.1.0')
   .argument('<pattern>', 'Glob pattern of files to analyze (e.g. "src/**/*.ts" or "malware.js")')
-  .option('-f, --format <format>',    'Output format: console | json', 'console')
+  .option('-f, --format <format>',    'Output format: console | json | sarif', 'console')
   .option('-o, --output <file>',      'Write output to file instead of stdout')
   .option('-a, --analyze',            'Show full function inventory + reduction report')
   .option('-r, --reachability',       'Cross-scope reachability analysis (eval-aware)')
   .option('-e, --entry <functions>',  'Comma-separated entry point(s) for reachability (e.g. sendCode,init)')
   .option('-w, --rewrite <dir>',      'Statically deobfuscate (HTML→b64→string-array) and write .deobf.js to <dir>')
+  .option('-i, --iocs',               'Extract indicators (URLs, domains, IPs, EVM addresses, base64 blobs) and emit a report')
   .option('--no-unused-imports',      'Skip unused import analysis')
   .option('--no-unused-vars',         'Skip unused variable/function analysis')
   .option('--no-unreachable',         'Skip unreachable code analysis')
@@ -135,6 +141,30 @@ program
       }
       console.log(`\nRewrote ${detected}/${files.length} file(s) to ${path.relative(cwd, outDir)}/`);
       process.exit(0);
+    }
+
+    // ── IOC extraction mode (--iocs) ─────────────────────────────────────────
+    if (opts.iocs) {
+      const reports: IocReport[] = [];
+      for (const ef of files) {
+        try {
+          const ast  = parseFile(ef.path);
+          const iocs = extractIocs(ast, ef.path);
+          reports.push({ file: ef.originPath + (ef.originTag ? `#${ef.originTag}` : ''), iocs });
+        } catch (err: any) {
+          console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
+        }
+      }
+      if (opts.format === 'json') {
+        const out = formatIocsJson(reports);
+        if (opts.output) fs.writeFileSync(opts.output, out, 'utf-8');
+        else console.log(out);
+      } else {
+        printIocs(reports, cwd);
+        if (opts.output) fs.writeFileSync(opts.output, formatIocsJson(reports), 'utf-8');
+      }
+      const total = reports.reduce((s, r) => s + r.iocs.length, 0);
+      process.exit(total > 0 ? 0 : 1);
     }
 
     // ── Reachability mode (--reachability) ───────────────────────────────────
@@ -214,8 +244,8 @@ program
       console.error(`  parse error — ${e}`);
     }
 
-    if (opts.format === 'json') {
-      const output = formatJson(result);
+    if (opts.format === 'json' || opts.format === 'sarif') {
+      const output = opts.format === 'sarif' ? formatSarif(result, cwd) : formatJson(result);
       if (opts.output) {
         fs.writeFileSync(opts.output, output, 'utf-8');
       } else {

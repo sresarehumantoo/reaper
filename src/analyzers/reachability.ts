@@ -64,39 +64,49 @@ export function analyzeReachability(
   const totalLines = source.split('\n').length;
   const totalChars = source.length;
 
+  // ── Parse the outer file once and share the AST across analyzers ──────────
+  // Previously: detectPacker and buildCallGraph each called parseCode(source)
+  // independently, doubling the parse cost on large files.
+  let outerAst: File | null = null;
+  try {
+    outerAst = parseCode(source, filePath);
+  } catch { /* non-parseable outer shell is fine — leave outerAst null */ }
+
   // ── Step 1: detect packers statically ────────────────────────────────────
   let packers: PackerInfo[] = [];
-  try {
-    packers = detectPacker(parseCode(source, filePath));
-  } catch { /* non-parseable outer shell is fine */ }
+  if (outerAst) {
+    try { packers = detectPacker(outerAst); } catch { /* fine */ }
+  }
 
   // ── Step 2: static call graph from the file's own AST ────────────────────
-  let staticGraph: CallGraph;
-  let staticMeta:  Map<string, FnMeta>;
-
-  try {
-    const result = buildCallGraph(parseCode(source, filePath));
-    staticGraph  = result.graph;
-    staticMeta   = result.meta;
-  } catch {
-    staticGraph = new Map();
-    staticMeta  = new Map();
+  let staticGraph: CallGraph         = new Map();
+  let staticMeta:  Map<string, FnMeta> = new Map();
+  if (outerAst) {
+    try {
+      const result = buildCallGraph(outerAst);
+      staticGraph  = result.graph;
+      staticMeta   = result.meta;
+    } catch { /* fall through with empty graph */ }
   }
 
   // ── Step 3: eval-aware scope capture ─────────────────────────────────────
   const evalResult  = captureEvalScope(filePath);
   const mergedGraph: CallGraph          = new Map(staticGraph);
   const mergedMeta:  Map<string, FnMeta> = new Map(staticMeta);
-  // Map layer index → parsed AST source (for string folding later)
-  const layerSources: Map<string, string> = new Map();
+  // Map layer index → { source, parsed AST }. Parsing each layer ONCE here
+  // and reusing the AST for both call-graph and string-folding passes below.
+  const layerAsts: Map<string, { src: string; ast: File }> = new Map();
 
   for (const layer of evalResult.layers) {
     if (layer.source.length < 20) continue;
-    layerSources.set(`eval${layer.index}`, layer.source);
+    let layerAst: File;
     try {
-      const layerAst = parseCode(layer.source, `${filePath}#eval${layer.index}`);
-      const { graph: lg, meta: lm } = buildCallGraph(layerAst);
+      layerAst = parseCode(layer.source, `${filePath}#eval${layer.index}`);
+    } catch { continue; /* unparseable layer */ }
+    layerAsts.set(`eval${layer.index}`, { src: layer.source, ast: layerAst });
 
+    try {
+      const { graph: lg, meta: lm } = buildCallGraph(layerAst);
       for (const [fn, refs] of lg) {
         if (!mergedGraph.has(fn)) {
           mergedGraph.set(fn, refs);
@@ -106,7 +116,7 @@ export function analyzeReachability(
           for (const r of refs) existing.add(r);
         }
       }
-    } catch { /* unparseable layer */ }
+    } catch { /* call-graph extraction failed; we still have the AST for strfold */ }
   }
 
   // ── Step 4: resolve entry points ─────────────────────────────────────────
@@ -131,15 +141,12 @@ export function analyzeReachability(
   const { reachable, dead, missingRoots } = computeReachability(mergedGraph, roots);
 
   // ── Step 6: string folding inside dead function bodies ───────────────────
-  // Build a map: fnName → list of FoldedStrings found in its body
+  // Reuses the per-layer ASTs we already parsed in Step 3.
   const foldedByFn = new Map<string, FoldedString[]>();
 
-  for (const [layerKey, src] of layerSources) {
+  for (const [, { ast: layerAst }] of layerAsts) {
     try {
-      const layerAst = parseCode(src, `${filePath}#${layerKey}`);
-      const folded   = foldStrings(layerAst);
-      // Attribute each folded string to the dead function it lives in
-      // (heuristic: walk the AST and find enclosing function name)
+      const folded = foldStrings(layerAst);
       attributeFoldedStrings(layerAst, folded, dead, foldedByFn);
     } catch { /* skip */ }
   }

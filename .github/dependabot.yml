@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  # JavaScript dependencies
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    groups:
+      # Group all @babel/* updates so we don't get one PR per package
+      babel:
+        patterns:
+          - "@babel/*"
+          - "@types/babel__*"
+      types:
+        patterns:
+          - "@types/*"
+        exclude-patterns:
+          - "@types/babel__*"
+      dev-tooling:
+        patterns:
+          - "tsx"
+          - "typescript"
+
+  # GitHub Actions versions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5

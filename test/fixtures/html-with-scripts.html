@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Test fixture</title>
+<!-- This comment contains <script src="trap.js"> on purpose to test
+     that the HTML extractor isn't fooled by commented-out script tags. -->
+<script>
+  // inline script #1
+  console.log("inline-a");
+</script>
+<script src="data:text/javascript;base64,Y29uc29sZS5sb2coImRhdGEtdXJpLWIiKQ=="></script>
+<script src="data:text/javascript,console.log(%22data-uri-c%22)"></script>
+<script src="https://example.com/external.js"></script>
+<script type="application/json">{"not": "javascript"}</script>
+</head>
+<body>
+<script>
+  // inline script #2
+  console.log("inline-d");
+</script>
+</body>
+</html>

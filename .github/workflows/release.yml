@@ -1,0 +1,84 @@
+name: release
+
+# Runs on annotated tags matching v*. Tag and push from a fully tested
+# commit:
+#
+#   npm version patch     # or minor / major — bumps package.json + commits + tags
+#   git push --follow-tags
+#
+# Once the tag arrives, this workflow runs the same checks CI does, builds
+# the package, and publishes to npm with provenance (sigstore-signed by
+# GitHub OIDC). Consumers can verify the package's provenance with
+# `npm install --provenance` or `npm view <pkg> ... --json`.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build + publish (with provenance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Provenance requires:
+    #   - id-token: write (OIDC)
+    #   - contents: read (default)
+    # No other scopes — we don't push code or create releases here.
+    permissions:
+      contents: read
+      id-token: write
+
+    environment:
+      name: npm-publish     # protect this in repo settings: required reviewer
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+          always-auth: true
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify the version on the tag matches package.json
+        run: |
+          TAG="${GITHUB_REF##refs/tags/v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Inspect the tarball before publish (no secrets leaked)
+        run: npm pack --dry-run
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

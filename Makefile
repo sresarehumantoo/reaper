@@ -23,7 +23,7 @@ BUILD_DIR  := build
 NODE_STAMP := node_modules/.install-stamp
 
 .DEFAULT_GOAL := all
-.PHONY: all help install build typecheck clean distclean \
+.PHONY: all help install build typecheck test clean distclean \
         sandbox sandbox-rebuild sandbox-clean \
         demo verify-examples ci fmt-check
 
@@ -49,6 +49,9 @@ build: $(NODE_STAMP)  ## Compile TypeScript to dist/
 
 typecheck: $(NODE_STAMP)  ## Type-check without emitting (CI-friendly)
 	$(NPX) tsc --noEmit
+
+test: $(NODE_STAMP)  ## Run the node:test suite (tsx loader)
+	$(NODE) --import tsx --test test/*.test.ts
 
 clean:  ## Remove dist/ and build/ (keep node_modules)
 	rm -rf dist $(BUILD_DIR)
@@ -82,7 +85,7 @@ verify-examples:  ## Verify every committed artifact still hashes correctly
 
 ## ── CI / quality gates ──────────────────────────────────────────────────────
 
-ci: typecheck verify-examples  ## Run the checks CI should run
+ci: typecheck test verify-examples  ## Run the checks CI should run
 
 ## ── Internal ────────────────────────────────────────────────────────────────
 

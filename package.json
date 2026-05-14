@@ -39,7 +39,8 @@
     "build": "tsc && chmod +x dist/cli.js && cp src/analyzers/evalscope-worker.cjs dist/analyzers/evalscope-worker.cjs",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "prepublishOnly": "npm run build && npx tsc --noEmit"
+    "test": "node --import tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run build && npx tsc --noEmit && npm test"
   },
   "dependencies": {
     "@babel/parser": "^7.24.0",
