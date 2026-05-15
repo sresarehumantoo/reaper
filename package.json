@@ -1,6 +1,6 @@
 {
   "name": "@sresarehumantoo/reaper",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dead code and obfuscation analyzer for JavaScript and TypeScript, with a hardened Docker sandbox for dynamic analysis.",
   "license": "MIT",
   "author": "Owen Pierce <owenpierceee@gmail.com>",
