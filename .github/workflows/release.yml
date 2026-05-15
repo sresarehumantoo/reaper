@@ -31,10 +31,9 @@ jobs:
 
     # Provenance requires:
     #   - id-token: write (OIDC)
-    #   - contents: read (default)
-    # No other scopes — we don't push code or create releases here.
+    #   - contents: write (only used by the final "Create GitHub Release" step)
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     # When you want a manual-approval gate before each publish, configure
@@ -87,3 +86,36 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Pull the matching section out of CHANGELOG.md so the GitHub Release
+      # body matches what's documented. Falls back to an auto-generated body
+      # if no matching section exists.
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          TAG="${GITHUB_REF##refs/tags/v}"
+          # Match "## [<version>]" through the next "## [" header.
+          NOTES="$(awk -v ver="$TAG" '
+            $0 ~ "^## \\[" ver "\\]" {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md)"
+          if [ -z "$NOTES" ]; then
+            echo "no CHANGELOG entry for v$TAG; release body will be empty"
+            NOTES="(no changelog entry — see commit history)"
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF##refs/tags/}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "${{ steps.notes.outputs.notes }}" \
+            --verify-tag

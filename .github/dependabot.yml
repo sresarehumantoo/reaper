@@ -25,6 +25,27 @@ updates:
         patterns:
           - "tsx"
           - "typescript"
+    # Hold back major-version bumps that conflict with our compatibility
+    # constraints. Revisit each with a focused PR when we deliberately want
+    # to migrate.
+    ignore:
+      # chalk 5+ is ESM-only — we are CommonJS (tsconfig: module=commonjs).
+      # Migrating would touch every reporter file's import. Defer.
+      - dependency-name: "chalk"
+        update-types: ["version-update:semver-major"]
+      # @types/node must track the engines.node floor (currently >=20).
+      # @types/node 22+ adds APIs that don't exist on Node 20 — using them
+      # would give false-positive "available" types for missing runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 6 deprecates moduleResolution=node10 (our current setting
+      # via "node"). Mergeable after tsconfig is updated to "node16" or
+      # "ignoreDeprecations: 6.0" — currently not done, so hold back.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # tsx tracks TS major versions; pin in the same group.
+      - dependency-name: "tsx"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions versions
   - package-ecosystem: github-actions
