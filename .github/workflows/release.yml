@@ -37,8 +37,13 @@ jobs:
       contents: read
       id-token: write
 
-    environment:
-      name: npm-publish     # protect this in repo settings: required reviewer
+    # When you want a manual-approval gate before each publish, configure
+    # an `npm-publish` Environment in repo Settings → Environments with a
+    # required reviewer, copy NPM_TOKEN into the environment's secrets,
+    # then uncomment the block below.
+    #
+    # environment:
+    #   name: npm-publish
 
     steps:
       - name: Check out

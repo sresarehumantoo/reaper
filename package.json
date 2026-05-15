@@ -1,5 +1,5 @@
 {
-  "name": "reaper",
+  "name": "@sresarehumantoo/reaper",
   "version": "0.1.0",
   "description": "Dead code and obfuscation analyzer for JavaScript and TypeScript, with a hardened Docker sandbox for dynamic analysis.",
   "license": "MIT",

@@ -50,9 +50,18 @@ Originally built to triage JS malware samples - packed payloads, eval layers, ch
 
 ## Install
 
+From npm (once published):
+
+```bash
+npm install -g @sresarehumantoo/reaper
+reaper "src/**/*.js"
+```
+
+From source (development):
+
 ```bash
 make                  # installs deps, typechecks, compiles to dist/
-# or run from source without building:
+# or run reaper from source without building:
 npx tsx src/cli.ts <pattern>
 ```
 
