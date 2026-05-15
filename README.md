@@ -30,6 +30,9 @@ Originally built to triage JS malware samples - packed payloads, eval layers, ch
 - Eval-aware scope capture - intercepts `eval`'d source and recursively analyses the inner layers
 - `p,a,c,k,e,r` static unpack + string folding inside dead function bodies (recovers constant strings from code that won't run)
 - **obfuscator.io string-array rewriter** - detects the array-fn + decoder + IIFE-shuffle + wrapper-fn pattern (including nested wrappers), boots the decoder in a vm, inlines enclosing-scope const lookups, and substitutes every wrapper call with its plaintext string. Output is a fully rewritten `.deobf.js`
+- **XOR-loop decoder recovery** - detects functions of the form `for (i) out += fromCharCode(s.charCodeAt(i) ^ k.charCodeAt(i % k.length))` and, when callers pass string-literal arguments, statically recovers the plaintext into the finding
+- **AAEncode/JJEncode detection** - flags the katakana-heavy ASCII-art encoding family. Recovery requires execution; route through `scripts/analyze.sh` or `--reachability`
+- **IOC extraction** (`--iocs`) - pulls URLs, bare domains, IPv4, EVM addresses, EVM function selectors, base64 blobs, high-entropy strings, and email addresses out of any input, with context hints (`prop:data`, `arg-of:fetch`, `init:varName`) so analysts see how each indicator is wired up
 
 **HTML / data-URI ingestion:**
 - `.html` inputs are scanned for inline `<script>` blocks and `data:text/javascript;base64,...` URIs; each script becomes a virtual sub-file the analyzers process independently
@@ -95,6 +98,27 @@ reaper obfuscated.js --rewrite out/
 ```
 
 For each input the rewriter reports how many wrapper calls were substituted; outputs are `<name>.deobf.js` (or `<name>.js` pass-through when no string-array pattern was detected).
+
+### Extract IOCs
+
+```bash
+# Indicators of compromise (URLs, domains, IPv4, EVM addresses + selectors,
+# base64 blobs, high-entropy strings, emails), with context hints
+reaper sample.js --iocs
+
+# Machine-readable JSON for downstream pipelines
+reaper sample.js --iocs --format json --output iocs.json
+```
+
+For best recall, run `--rewrite` first and then `--iocs` against the deobfuscated output — IOCs hidden behind a string-array decoder won't be visible in the raw form.
+
+### SARIF output (GitHub Code Scanning)
+
+```bash
+reaper "src/**/*.js" --format sarif --output reaper.sarif
+```
+
+The result is a SARIF 2.1.0 document. Upload it from a workflow with `github/codeql-action/upload-sarif` to get findings rendered in the repo's Code Scanning tab.
 
 ### Full pipeline (static + sandboxed dynamic)
 
