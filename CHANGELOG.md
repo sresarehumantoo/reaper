@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-15
+
+Maintenance release. Verifies the release pipeline end-to-end (npm publish + GitHub Release auto-creation) and brings in a round of safe dependency updates.
+
+### Changed
+
+- `commander` 12.x → 14.x. Tests pass; CLI surface unchanged.
+- `@babel/parser` 7.29.2 → 7.29.3 (patch).
+- `actions/checkout` 4 → 6 and `actions/setup-node` 4 → 6 in CI and release workflows (silences the upcoming Node-20-action deprecation warnings).
+
+### Fixed
+
+- Release workflow now creates the corresponding GitHub Release page with notes extracted from the matching `CHANGELOG.md` section. Previously the workflow only published to npm and the repo's Releases tab stayed empty.
+
+### Security
+
+- `.github/dependabot.yml` now holds back major-version bumps that conflict with reaper's current compatibility constraints (`chalk` 5+ is ESM-only, `@types/node` must match the `engines.node` floor of 20, `typescript`/`tsx` major bumps require updating `tsconfig.json`'s `moduleResolution`). These will be revisited as deliberate, focused PRs when reaper migrates each constraint.
+
 ## [0.1.0] - 2026-05-15
 
 Initial public release.
@@ -36,5 +54,6 @@ Initial public release.
 - `SECURITY.md` documents the threat model, what is and isn't an isolation boundary in reaper, and the reporting policy.
 - `prepublishOnly` script runs build + typecheck + tests before any publish.
 
-[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sresarehumantoo/reaper/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sresarehumantoo/reaper/releases/tag/v0.1.0
