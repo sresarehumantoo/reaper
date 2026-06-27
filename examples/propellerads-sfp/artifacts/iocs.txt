@@ -1,0 +1,31 @@
+# Network indicators for the PropellerAds sfp.js sample.
+# Extracted from artifacts/payload.deobf.js. One indicator per line.
+# Format:  <type>  <value>  # <role>
+
+domain  drainalmost.com               # invokeDomain — beacon pixel host (/pixel/*)
+domain  realizationnewestfangs.com    # adsDomain — primary ad creative endpoint
+domain  skinnycrawlinglax.com         # oldestDomainFromList — fallback ad domain
+domain  protrafficinspector.com       # userIdCookieDomain — issues /stats UUID
+domain  preferencenail.com            # fingerprintDomain — bot-score upload
+
+path    /pixel/purs                   # successful-execution beacon
+path    /pixel/puclc                  # click beacon
+path    /pixel/purst                  # network-timing beacon
+path    /pixel/pure                   # error report (POST JSON)
+path    /stats                        # UUID issuance (GET, withCredentials)
+path    /mh03r2fd70                   # adsPath — creative fetch path on adsDomain
+
+id      1285133f2f3d4bffd19ce5188f677353   # placementKey (also the filename)
+id      019e2d22-28fa-7992-b916-45655d005531  # invBackId — publisher account UUID
+id      70                            # templateId
+
+build   2026.5.0                      # sfp.js buildVersion
+
+ua-cookie  pp_main_<key>              # frequency-cap cookie/localStorage prefix
+ua-cookie  pp_sub_<key>
+ua-cookie  pp_clicks_<key>
+ua-cookie  pp_delay_<key>
+ua-cookie  pp_idelay_<key>
+ua-cookie  pp_exp_<key>
+ua-cookie  pp_show_on_<key>
+ua-cookie  total_count_<key>

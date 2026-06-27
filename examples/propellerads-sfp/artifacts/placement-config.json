@@ -1,0 +1,62 @@
+{
+  "_note": "Extracted from the DL placeholders table in payload.deobf.js (lines ~2400–2441). These are the bootstrap defaults the host page would override via window-level config before sfp.js executes; on a wild-caught script the defaults reveal the publisher account and the network's relay infrastructure.",
+  "buildVersion": "2026.5.0",
+  "placement": {
+    "placementKey":              "1285133f2f3d4bffd19ce5188f677353",
+    "templateId":                "70",
+    "invBackId":                 "019e2d22-28fa-7992-b916-45655d005531",
+    "plCategoryId":              "3",
+    "placementCategoryId":       "3",
+    "plTagListExcludeIds":       [4,12,27,31,32,35,55,60,68,73,74,80,89,188,190],
+    "placementTagListExcludeIds":[4,12,27,31,32,35,55,60,68,73,74,80,89,188,190]
+  },
+  "domains": {
+    "invokeDomain":                  "drainalmost.com",
+    "adsDomain":                     "realizationnewestfangs.com",
+    "oldestDomainFromList":          "skinnycrawlinglax.com",
+    "userIdCookieDomain":            "protrafficinspector.com",
+    "fingerprintDomain":             "preferencenail.com",
+    "adsPath":                       "mh03r2fd70",
+    "publisherCustomDedicatedDomain":""
+  },
+  "frequency": {
+    "delay":                          10,
+    "initDelay":                      0,
+    "maxPerPage":                     1,
+    "maxPerPeriod":                   4,
+    "period":                         2,
+    "backButtonRedirectsPeriod":      24,
+    "backButtonRedirectsMaxPerPeriod":2
+  },
+  "behavior": {
+    "template":            "simple",
+    "isSelf":              false,
+    "isMobileSelf":        false,
+    "isSwipe":             true,
+    "isWordPress":         true,
+    "addFingerprint":      true,
+    "enableAggressiveBb":  true,
+    "toOverlay":           false,
+    "childExtraAggressiveBB": false,
+    "childExtraSocialbar":   false,
+    "psidMode":            0,
+    "showOnClicks":        "0",
+    "showOnPages":         "0"
+  },
+  "beacon_endpoints": {
+    "_form": "All four hit https://<invokeDomain>/pixel/* via `new Image().src = ...` (no CORS, bypasses connect-src CSP).",
+    "successful_execution": "purs?tmpl=<templateId>&bv=<buildVersion>",
+    "click":                "puclc?tmpl=<templateId>&bv=<buildVersion>&plk=<placementKey>",
+    "network_metrics":      "purst?dl=<dnsMs>&th=<tcpMs>&sc=<sslMs>&rs=<ttfbMs>&rd=<reqMs>&fd=<totalMs>&bv=<buildVersion>&tmpl=<templateId>",
+    "error_post": {
+      "method":       "POST",
+      "url":          "https://<invokeDomain>/pixel/pure",
+      "content_type": "application/json",
+      "body":         { "bv": "<buildVersion>", "error": "<message>", "tmpl": "<templateId>" }
+    }
+  },
+  "creative_fetch_url": {
+    "_form": "Built by getQuery() + generateUrl() + getPsid() — the URL that returns the ad creative to render.",
+    "template": "https://<adsDomain>/<adsPath>?<page-title-keywords as &kw=>&key=<placementKey>&scrWidth=<screen.width>&scrHeight=<screen.height>&tz=<-getTimezoneOffset/60>&ship=1&v=<buildVersion>[&abt=<abPlacementSubId>]&sub3=invoke_layer&res=<LieDetector.runTests().getResults()>&dev=<e|r>&ifid=<UUIDv7>&ibid=<invBackId>[&psid=<persistentSessionId>][&uuid=<serverIssuedUUID>]"
+  }
+}

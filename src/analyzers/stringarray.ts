@@ -1,21 +1,34 @@
 /**
  * obfuscator.io string-array detector and static rewriter.
  *
- * The pattern:
- *   function _0xARR()        { const _0x... = [...]; _0xARR = ...; return ...; }
- *   function _0xDEC(a,b)     { const arr = _0xARR(); return _0xDEC = function(x){...arr[x-K]...}, _0xDEC(a,b); }
- *   (function(arr, target){ ... while(true){...} }(_0xARR, NNN));     // IIFE shuffle
- *   function _0xWRAP(a,b)    { return _0xDEC(transform(a, b), …); }   // optional wrappers, can be nested
+ * Two decoder shapes are handled:
+ *
+ *   (a) self-rewriting (obfuscator.io ≥ v3):
+ *     function _0xARR()        { const _0x... = [...]; _0xARR = ...; return ...; }
+ *     function _0xDEC(a,b)     { const arr = _0xARR(); return _0xDEC = function(x){...arr[x-K]...}, _0xDEC(a,b); }
+ *     (function(arr, target){ ... while(true){...} }(_0xARR, NNN));     // IIFE shuffle
+ *     function _0xWRAP(a,b)    { return _0xDEC(transform(a, b), …); }   // optional wrappers, can be nested
+ *
+ *   (b) simple-subtract (older obfuscator.io / many commercial packers, e.g. PropellerAds sfp.js):
+ *     function _0xDEC(o, k)    { o = o - 0x1ec; var n = _0xARR(); var z = n[o]; return z; }
+ *     function _0xARR()        { ... self-rewriting as in (a) ... }
+ *     (function(o, k){ ... }(_0xARR, NNN))                              // rotator, may be in a SequenceExpression
+ *     var alias = _0xDEC;  alias(0x123);                                // aliases instead of wrapper fns
+ *
+ * Both shapes can be nested arbitrarily deep inside outer IIFEs — discovery
+ * walks the full AST, not just program.body.
  *
  * Strategy (pure-data: returns rewritten source, never mutates the input):
- *   1. Locate arrayFn, root decoder, the IIFE shuffle.
+ *   1. Locate arrayFn, root decoder, the IIFE shuffle (anywhere in the AST).
  *   2. Boot a sandboxed vm with array + decoder + IIFE so the rotation settles.
- *   3. Discover every wrapper fn (any depth, any number of passes).
+ *   3. Discover every wrapper fn (any depth, any number of passes) AND every
+ *      identifier alias `var X = decoder` (transitively).
  *   4. For each wrapper, inline enclosing-scope const objects/numbers/strings
  *      into a clone of its body, then emit into the vm so it's callable.
- *   5. Walk the AST; for each wrapper call whose args can be const-evaluated,
- *      replace the call with the literal string the wrapper returns.
- *   6. Strip the dead obfuscator scaffolding from the output AST.
+ *   5. Walk the AST; for each wrapper or alias call whose args can be
+ *      const-evaluated, replace the call with the literal string returned.
+ *   6. Strip the dead obfuscator scaffolding from the output AST when it's
+ *      at program-body level (nested scaffolding is left in place — safer).
  */
 
 import vm from 'vm';
@@ -35,6 +48,7 @@ export interface StringArrayInfo {
   arrayFn:        string | null;
   decoderFn:      string | null;
   wrappers:       string[];
+  aliases:        string[];        // identifier aliases of the decoder (e.g. `var Ne = decoder`)
   substitutions:  number;
   attempted:      number;
   rewritten:      string | null;   // full rewritten source, or null if not detected
@@ -47,6 +61,7 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
     arrayFn:       null,
     decoderFn:     null,
     wrappers:      [],
+    aliases:       [],
     substitutions: 0,
     attempted:     0,
     rewritten:     null,
@@ -61,25 +76,30 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
     return info;
   }
 
-  // ── 1. Locate arrayFn and root decoder ─────────────────────────────────────
-  const arrayFn   = findArrayFn(ast);
-  const decoderFn = arrayFn ? findRootDecoder(ast, arrayFn) : null;
-  if (!arrayFn || !decoderFn) return info;
+  // ── 1. Locate arrayFn and root decoder (anywhere in the AST) ──────────────
+  const arrayDecl = findArrayFnDecl(ast);
+  const arrayFn   = arrayDecl?.id?.name ?? null;
+  const decoderDecl = arrayFn ? findRootDecoderDecl(ast, arrayFn) : null;
+  const decoderFn   = decoderDecl?.id?.name ?? null;
+  if (!arrayFn || !decoderFn || !arrayDecl || !decoderDecl) return info;
 
   info.arrayFn   = arrayFn;
   info.decoderFn = decoderFn;
 
-  // ── 2. Locate IIFE shuffle ────────────────────────────────────────────────
-  const iifeNode = findIifeShuffle(ast, arrayFn);
+  // ── 2. Locate IIFE shuffle (anywhere in the AST) ──────────────────────────
+  const iifeCall = findIifeShuffleCall(ast, arrayFn);
 
   // ── 3. Boot the VM with arrayFn + decoder + IIFE ─────────────────────────
+  // Synthesise a fresh program: clone the discovered nodes (so we don't mutate
+  // the source AST) and emit them in arrayFn → decoder → rotator order.
   const ctx = vm.createContext(Object.create(null));
-  const bootStmts = ast.program.body.filter(n =>
-    (t.isFunctionDeclaration(n) && (n.id?.name === arrayFn || n.id?.name === decoderFn)) ||
-    n === iifeNode
-  );
+  const bootBody: t.Statement[] = [
+    t.cloneNode(arrayDecl, true),
+    t.cloneNode(decoderDecl, true),
+  ];
+  if (iifeCall) bootBody.push(t.expressionStatement(t.cloneNode(iifeCall, true)));
   try {
-    vm.runInContext(generate(t.program(bootStmts)).code, ctx, { timeout: VM_TIMEOUT_MS });
+    vm.runInContext(generate(t.program(bootBody)).code, ctx, { timeout: VM_TIMEOUT_MS });
   } catch (e: any) {
     info.error = `vm boot failed: ${e.message}`;
     return info;
@@ -93,7 +113,34 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
 
   info.detected = true;
 
-  // ── 4. Discover all wrappers at any depth ─────────────────────────────────
+  // ── 4a. Discover identifier aliases of the decoder ────────────────────────
+  // Pattern: `var X = decoder` (or `var Y = X` transitively). These are not
+  // wrapper functions — they're aliased references the obfuscator scatters
+  // through every function scope to defeat naive name-based detection.
+  // For substitution purposes, a call on an alias is equivalent to a call on
+  // the root decoder with the same args.
+  const aliasToRoot = new Map<string, string>();   // alias name → root decoder name
+  aliasToRoot.set(decoderFn, decoderFn);
+  for (let pass = 0; pass < 10; pass++) {
+    let added = 0;
+    traverse(ast, {
+      VariableDeclarator(p) {
+        const { id, init } = p.node;
+        if (!t.isIdentifier(id) || !t.isIdentifier(init)) return;
+        if (aliasToRoot.has(init.name) && !aliasToRoot.has(id.name)) {
+          aliasToRoot.set(id.name, decoderFn);
+          added++;
+        }
+      },
+    });
+    if (added === 0) break;
+  }
+  info.aliases = [...aliasToRoot.keys()].filter(n => n !== decoderFn);
+
+  // ── 4b. Discover wrapper functions at any depth ───────────────────────────
+  // A wrapper is `function w(a,b){ return <decoder-or-alias>(transform(a,b)); }`
+  // — it transforms the args before delegating. Track them separately from
+  // aliases because they need to be materialised into the vm individually.
   const knownWrappers = new Set<string>([decoderFn]);
   const wrapperNodes  = new Map<string, t.Function>();
 
@@ -104,7 +151,10 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
         const node = p.node;
         const name = getFnName(node, p.parent);
         if (!name || knownWrappers.has(name) || name === arrayFn) return;
-        if (!isWrapperShape(node, knownWrappers)) return;
+        if (aliasToRoot.has(name)) return;        // it's an alias, not a wrapper
+        // A wrapper resolves through any known decoder/alias/wrapper.
+        const resolvable = new Set<string>([...knownWrappers, ...aliasToRoot.keys()]);
+        if (!isWrapperShape(node, resolvable)) return;
         knownWrappers.add(name);
         wrapperNodes.set(name, node);
         added++;
@@ -140,18 +190,34 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
     }
   }
 
-  // ── 6. Walk the AST, replace wrapper calls with literal strings ───────────
+  // ── 6. Walk the AST, replace wrapper/alias calls with literal strings ────
+  // Two routes:
+  //   (i)  callee is an alias of the decoder → call ctx[decoder](...args).
+  //   (ii) callee is a wrapper fn we materialised → call ctx[wrapper](...args).
+  // The root decoder is skipped at its declared name (the substitution would
+  // be redundant — direct decoder calls are vanishingly rare and the boot
+  // step already left it defined for alias resolution).
   traverse(ast, {
     CallExpression(p) {
       const callee = p.node.callee;
       if (!t.isIdentifier(callee)) return;
-      if (callee.name === decoderFn || !knownWrappers.has(callee.name)) return;
+      const name = callee.name;
+
+      let target: string | null = null;
+      if (aliasToRoot.has(name) && name !== decoderFn) {
+        target = decoderFn;
+      } else if (knownWrappers.has(name) && name !== decoderFn) {
+        target = name;
+      } else {
+        return;
+      }
+
       info.attempted++;
       const env  = collectConstEnv(p);
       const args = p.node.arguments.map(a => evalConstNode(a as Node, env));
       if (args.some(a => a === undefined)) return;
       let result: unknown;
-      try { result = (ctx as any)[callee.name](...args as any[]); } catch { return; }
+      try { result = (ctx as any)[target](...args as any[]); } catch { return; }
       if (typeof result === 'string') {
         p.replaceWith(t.stringLiteral(result));
         info.substitutions++;
@@ -160,11 +226,21 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
   });
 
   // ── 7. Strip dead obfuscator scaffolding ──────────────────────────────────
+  // Top-level scaffolding only — when the obfuscator wraps everything in an
+  // outer IIFE the scaffold lives inside it; in that case we leave it alone
+  // (the rewritten strings make the file readable without removing structure
+  // that other analyses may want to inspect). The IIFE-shuffle ExpressionStatement
+  // at program-body level is removed when found.
+  const iifeStmtAtTop = iifeCall
+    ? ast.program.body.find(n =>
+        t.isExpressionStatement(n) && n.expression === iifeCall
+      ) ?? null
+    : null;
   ast.program.body = ast.program.body.filter(n => {
     if (t.isFunctionDeclaration(n) && n.id) {
       if (n.id.name === arrayFn || n.id.name === decoderFn) return false;
     }
-    if (n === iifeNode) return false;
+    if (n === iifeStmtAtTop) return false;
     return true;
   });
   traverse(ast, {
@@ -187,50 +263,123 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
 // Pattern detection helpers
 // ---------------------------------------------------------------------------
 
-function findArrayFn(ast: File): string | null {
-  for (const node of ast.program.body) {
-    if (!t.isFunctionDeclaration(node) || !node.id) continue;
-    const hasArray = node.body.body.some(s =>
-      t.isVariableDeclaration(s) &&
-      s.declarations[0]?.init &&
-      t.isArrayExpression(s.declarations[0].init) &&
-      s.declarations[0].init.elements.length > 5
-    );
-    if (hasArray) return node.id.name;
-  }
-  return null;
+/**
+ * Find the string-array function anywhere in the AST. The shape is:
+ *   function NAME() {
+ *     var arr = [<long string literal array>];
+ *     NAME = function () { return arr; };
+ *     return NAME();
+ *   }
+ * The array literal must have > 5 elements (filters out incidental small arrays).
+ */
+function findArrayFnDecl(ast: File): t.FunctionDeclaration | null {
+  let found: t.FunctionDeclaration | null = null;
+  traverse(ast, {
+    FunctionDeclaration(p) {
+      if (found || !p.node.id) return;
+      const hasArray = p.node.body.body.some(s =>
+        t.isVariableDeclaration(s) &&
+        s.declarations[0]?.init &&
+        t.isArrayExpression(s.declarations[0].init) &&
+        s.declarations[0].init.elements.length > 5
+      );
+      if (hasArray) found = p.node;
+    },
+  });
+  return found;
 }
 
-function findRootDecoder(ast: File, arrayFn: string): string | null {
-  // Pattern: function NAME(a,b){ const x = arrayFn(); return NAME = function(...){...}, NAME(a,b); }
-  for (const node of ast.program.body) {
-    if (!t.isFunctionDeclaration(node) || !node.id) continue;
-    if (node.id.name === arrayFn) continue;
-    for (const stmt of node.body.body) {
-      if (!t.isReturnStatement(stmt)) continue;
-      const seq  = stmt.argument;
-      const head = t.isSequenceExpression(seq) ? seq.expressions[0] :
-                   t.isAssignmentExpression(seq) ? seq : null;
-      if (!head || !t.isAssignmentExpression(head)) continue;
-      if (t.isIdentifier(head.left) && head.left.name === node.id.name &&
-          t.isFunctionExpression(head.right)) {
-        return node.id.name;
-      }
+/**
+ * Find the root decoder anywhere in the AST. Accepts two shapes:
+ *
+ *   (a) Self-rewriting (obfuscator.io ≥ v3):
+ *       function NAME(a, b) {
+ *         var arr = arrayFn();
+ *         return NAME = function (x) { x = x - K; return arr[x]; }, NAME(a, b);
+ *       }
+ *
+ *   (b) Simple-subtract (older obfuscator.io / commercial packers):
+ *       function NAME(o, k) {
+ *         o = o - 0x1ec;
+ *         var n = arrayFn();
+ *         var z = n[o];
+ *         return z;
+ *       }
+ *
+ * Both call `arrayFn()` and index into it; (a) self-rewrites on first call.
+ */
+function findRootDecoderDecl(ast: File, arrayFn: string): t.FunctionDeclaration | null {
+  let found: t.FunctionDeclaration | null = null;
+  traverse(ast, {
+    FunctionDeclaration(p) {
+      if (found || !p.node.id) return;
+      if (p.node.id.name === arrayFn) return;
+      if (decoderBodyCallsArrayFn(p.node, arrayFn)) found = p.node;
+    },
+  });
+  return found;
+}
+
+function decoderBodyCallsArrayFn(fn: t.FunctionDeclaration, arrayFn: string): boolean {
+  // Shape (a): return SELF = function(...){...}, SELF(...)
+  for (const stmt of fn.body.body) {
+    if (!t.isReturnStatement(stmt)) continue;
+    const seq  = stmt.argument;
+    const head = t.isSequenceExpression(seq) ? seq.expressions[0] :
+                 t.isAssignmentExpression(seq) ? seq : null;
+    if (head && t.isAssignmentExpression(head) &&
+        t.isIdentifier(head.left) && head.left.name === fn.id!.name &&
+        t.isFunctionExpression(head.right)) {
+      return true;
     }
   }
-  return null;
+
+  // Shape (b): body somewhere calls arrayFn() and indexes into the result.
+  // Require an explicit `var X = arrayFn()` (or const/let) and a return that
+  // either returns an indexed expression or returns an identifier that was
+  // assigned an indexed expression.
+  let callsArr = false, indexesResult = false;
+  for (const stmt of fn.body.body) {
+    if (t.isVariableDeclaration(stmt)) {
+      for (const d of stmt.declarations) {
+        if (d.init && t.isCallExpression(d.init) &&
+            t.isIdentifier(d.init.callee) && d.init.callee.name === arrayFn) {
+          callsArr = true;
+        }
+        if (d.init && t.isMemberExpression(d.init) && d.init.computed) {
+          indexesResult = true;
+        }
+      }
+    }
+    if (t.isReturnStatement(stmt) && stmt.argument &&
+        t.isMemberExpression(stmt.argument) && stmt.argument.computed) {
+      indexesResult = true;
+    }
+  }
+  return callsArr && indexesResult;
 }
 
-function findIifeShuffle(ast: File, arrayFn: string): t.ExpressionStatement | null {
-  for (const node of ast.program.body) {
-    if (!t.isExpressionStatement(node)) continue;
-    if (!t.isCallExpression(node.expression)) continue;
-    if (!t.isFunctionExpression(node.expression.callee)) continue;
-    const passesArrayFn = node.expression.arguments.some(a =>
-      t.isIdentifier(a) && a.name === arrayFn);
-    if (passesArrayFn) return node;
-  }
-  return null;
+/**
+ * Find the rotator/shuffle IIFE call anywhere in the AST. Shape:
+ *   (function (o, k) { var Ne = decoder, n = o(); while (...) { ... } }(arrayFn, NNN))
+ *
+ * Looks for any CallExpression whose callee is a FunctionExpression that takes
+ * a reference to arrayFn as one of its arguments. Returns the CallExpression
+ * node itself (not the wrapping ExpressionStatement) — boot wraps it as needed.
+ */
+function findIifeShuffleCall(ast: File, arrayFn: string): t.CallExpression | null {
+  let found: t.CallExpression | null = null;
+  traverse(ast, {
+    CallExpression(p) {
+      if (found) return;
+      const node = p.node;
+      if (!t.isFunctionExpression(node.callee)) return;
+      const passesArrayFn = node.arguments.some(a =>
+        t.isIdentifier(a) && a.name === arrayFn);
+      if (passesArrayFn) found = node;
+    },
+  });
+  return found;
 }
 
 function getFnName(node: t.Function, parent: t.Node | null | undefined): string | null {

@@ -5,7 +5,7 @@ Dead-code and obfuscation analyzer for JavaScript and TypeScript, with an option
 Originally built to triage JS malware samples - packed payloads, eval layers, char-code arrays, base64 staging, smart-contract-hosted payloads - but it works just as well as a plain dead-code finder on regular source trees.
 
 > [!WARNING]
-> **`examples/` contains real, live malware samples.** The files under `examples/dom01/`, `examples/etherhiding/artifacts/`, `examples/deadcode01/`, and `examples/deadcode02/` are deobfuscation fixtures and reverse-engineering walkthroughs that ship inert payloads (`.js`, `.b64`, `.hex`, `.txt`) **as data files**. They will not execute unless you deliberately run them. Do not `node`, `bash`, or `eval` any file under `examples/`. Do not paste the contents of any `clipboard-payload.txt` into a shell.
+> **`examples/` contains real, live malware and ad-fraud samples.** The files under `examples/dom01/`, `examples/etherhiding/artifacts/`, `examples/propellerads-sfp/artifacts/`, `examples/deadcode01/`, and `examples/deadcode02/` are deobfuscation fixtures and reverse-engineering walkthroughs that ship inert payloads (`.js`, `.b64`, `.hex`, `.txt`) **as data files**. They will not execute unless you deliberately run them. Do not `node`, `bash`, or `eval` any file under `examples/`. Do not paste the contents of any `clipboard-payload.txt` into a shell.
 >
 > If you want a code-only clone with no payloads, use a sparse checkout:
 >
@@ -152,6 +152,7 @@ The pipeline script runs the static analyzer, then builds and runs the Docker sa
 See the warning at the top of this README before opening files under `examples/`.
 
 - **`examples/etherhiding/`** - full walkthrough of an in-the-wild **EtherHiding + ClickFix** sample. The directory contains the minimal HTML fixture, every intermediate stage fetched from BSC testnet contract storage, both OS-specific clipboard payloads, the deobfuscated plaintext of every JavaScript stage, and a step-by-step `README.md` you can follow with no network access. See `examples/etherhiding/REPORT.md` for the analysis report and IOCs.
+- **`examples/propellerads-sfp/`** - full walkthrough of a PropellerAds-family **smart popunder / click-hijack tag** (`sfp.js`, build `2026.5.0`). The 97 KB obfuscator.io-obfuscated payload, reaper's plaintext rewrite (2 355/2 355 substitutions), the extracted publisher/network bootstrap config, and an IOC list. Motivated the alias / IIFE-nested / simple-subtract extensions to the string-array rewriter. See `examples/propellerads-sfp/REPORT.md` for the analysis report and IOCs.
 - **`examples/dom01/`** - original DOM dump (compromised WordPress page) from which the EtherHiding sample was extracted.
 - **`examples/deadcode01/`** - real-world obfuscated sample (`sendCode.js`) plus its companion files. Good test for reachability and eval-layer capture.
 - **`examples/deadcode02/`** - small `p,a,c,k,e,r`-packed flag. Try `reaper examples/deadcode02/flag.js --reachability`.

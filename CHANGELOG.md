@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **String-array rewriter now handles IIFE-nested + identifier-alias variants.** Previously the detector only fired when the array fn, root decoder, and rotator IIFE all lived at program-body level and call sites went through *function* wrappers. The discovery helpers (`findArrayFnDecl`, `findRootDecoderDecl`, `findIifeShuffleCall`) now traverse the full AST, so the trio can be nested inside outer `(function(){...})()` wrappers. The decoder recognises a second shape — simple-subtract `function(o,k){ o = o - K; var n = arrayFn(); var z = n[o]; return z; }` (no self-rewrite) — used by older obfuscator.io builds and commercial packers such as the PropellerAds/Adsterra `sfp.js` family. A new alias-resolution pass walks every `var X = decoder` (transitively `var Y = X`) anywhere in the AST so identifier aliases — the typical per-function alias the obfuscator scatters — are inlined alongside wrapper-fn calls. `StringArrayInfo` gains an `aliases: string[]` field. Verified on a 97 KB PropellerAds `sfp.js` sample: 2355/2355 substitutions, 378 aliases resolved, byte-identical to a hand-written one-off rewriter.
+- **`examples/propellerads-sfp/`** — new reverse-engineering walkthrough covering the PropellerAds-family `sfp.js` smart popunder / click-hijack tag (build `2026.5.0`). Ships the original obfuscated 97 KB payload, reaper's plaintext rewrite, the extracted publisher/network bootstrap config (`placement-config.json`), the network IOC list, the step-by-step `README.md` walkthrough, the analysis `REPORT.md`, and a verifying `SHA256SUMS`. The sample is the motivating case for the rewriter extensions above.
+
 ## [0.1.1] - 2026-05-15
 
 Maintenance release. Verifies the release pipeline end-to-end (npm publish + GitHub Release auto-creation) and brings in a round of safe dependency updates.

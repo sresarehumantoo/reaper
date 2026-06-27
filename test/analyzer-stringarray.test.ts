@@ -69,3 +69,36 @@ test('stringarray: returns error on unparseable input rather than throwing', () 
   assert.equal(r.detected, false);
   assert.ok(r.error && r.error.includes('parse failed'), `expected parse error, got: ${r.error}`);
 });
+
+test('stringarray: handles IIFE-nested simple-subtract decoder with identifier aliases', () => {
+  // Regression for the PropellerAds/Adsterra sfp.js variant where:
+  //   - decoder/array/rotator are nested inside an outer (function(){...})();
+  //   - the decoder uses the simple-subtract shape (no self-rewrite);
+  //   - the rotator is part of a SequenceExpression, not a top-level stmt;
+  //   - calls go through per-function aliases (`var X = decoder`).
+  const src = readFixture('string-array-iife-aliased.js');
+  const r = detectAndRewriteStringArray(src, 'string-array-iife-aliased.js');
+
+  assert.equal(r.detected, true, 'should detect the nested variant');
+  assert.equal(r.arrayFn,   '_0xarr');
+  assert.equal(r.decoderFn, '_0xdec');
+  assert.equal(r.error, null);
+
+  // The fixture has 7 alias-call sites: Q(0x0), Q2(0x1), Q(0x2), Q2(0x3),
+  // Q(0x4), Q2(0x5), Q(0x6) — all should be inlined.
+  assert.equal(r.attempted,     7, 'all alias call sites should be considered');
+  assert.equal(r.substitutions, 7, 'all alias call sites should be inlined');
+
+  // Aliases discovered transitively: `var alias = _0xdec` inside the rotator,
+  // plus `var Q = _0xdec` and `var Q2 = _0xdec` inside greet's scope.
+  assert.ok(r.aliases.includes('Q'),     'alias Q should be discovered');
+  assert.ok(r.aliases.includes('Q2'),    'alias Q2 should be discovered');
+  assert.ok(r.aliases.includes('alias'), 'rotator-local alias should be discovered');
+
+  // Plaintext strings should now appear as literals in the rewritten source.
+  assert.match(r.rewritten!, /"hello"/);
+  assert.match(r.rewritten!, /"world"/);
+  assert.match(r.rewritten!, /"quux"/);
+  // Wrapper substitutions are zero — there are no wrapper fns, only aliases.
+  assert.equal(r.wrappers.length, 0);
+});
