@@ -60,7 +60,11 @@ test('iocs: end-to-end against the deobfuscated EtherHiding loader', () => {
 });
 
 test('iocs: extracts Telegram bot token', () => {
-  const i = iocsFor("var t = '1234567890:AAH9zYxWvUtSrQpOnMlKjIhGfEdCbA12345';");
+  // Synthetic token assembled at runtime: the bot-id:secret literal never
+  // appears contiguously in source, so secret scanners don't false-positive,
+  // while the value still matches the detector's <8-10 digits>:<35 chars> shape.
+  const tgToken = ['1234567890', 'A'.repeat(35)].join(':');
+  const i = iocsFor(`var t = '${tgToken}';`);
   assert.ok(i.some(x => x.type === 'telegram-bot-token'));
 });
 
