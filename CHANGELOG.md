@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-29
+
 ### Added
 
 - **Generic constant-folding deobfuscation pass (`src/analyzers/constfold.ts`).** A fixpoint partial-evaluator that collapses the mechanical transforms obfuscators rely on beyond the string-array: `atob`/`unescape`/`decodeURIComponent`, `String.fromCharCode`, `parseInt`/`Number`, string concatenation and `Array.join`, pure-literal arithmetic (`^ & | << >> + - * / % **`), `!0`/`![]`/`!![]`/`void` truthiness, and `obj["ident"]` → `obj.ident`. Only pure, literal-operand expressions are evaluated (no identifiers, calls to unknown functions, or side effects). Hex/unicode/numeric-literal obfuscation normalises for free via AST re-generation. Wired into `--rewrite` after the string-array rewrite (disable with `--no-fold`); on the PropellerAds sample it collapses ~2.8k expressions on top of the 2355 string substitutions.
