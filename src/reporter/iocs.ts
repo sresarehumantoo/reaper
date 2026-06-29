@@ -1,24 +1,46 @@
 import chalk from 'chalk';
 import path from 'path';
-import type { Ioc } from '../analyzers/iocs';
+import type { Ioc, IocType } from '../analyzers/iocs';
+import { defang as defangStr, truncate } from '../util';
 
 export interface IocReport {
   file: string;
   iocs: Ioc[];
 }
 
-const TYPE_COLOR: Record<Ioc['type'], (s: string) => string> = {
-  'url':          chalk.cyan,
-  'domain':       chalk.cyan,
-  'ipv4':         chalk.magenta,
-  'evm-address':  chalk.yellow,
-  'evm-selector': chalk.yellow,
-  'base64':       chalk.dim,
-  'high-entropy': chalk.dim,
-  'email':        chalk.green,
+const TYPE_COLOR: Partial<Record<IocType, (s: string) => string>> = {
+  'url':                chalk.cyan,
+  'domain':             chalk.cyan,
+  'discord-webhook':    chalk.redBright,
+  'ipv4':               chalk.magenta,
+  'ipv6':               chalk.magenta,
+  'evm-address':        chalk.yellow,
+  'evm-selector':       chalk.yellow,
+  'btc-address':        chalk.yellow,
+  'xmr-address':        chalk.yellow,
+  'telegram-bot-token': chalk.redBright,
+  'aws-key':            chalk.redBright,
+  'jwt':                chalk.red,
+  'private-key':        chalk.redBright,
+  'registry-key':       chalk.blue,
+  'windows-path':       chalk.blue,
+  'suspicious-command': chalk.red,
+  'base64':             chalk.dim,
+  'high-entropy':       chalk.dim,
+  'email':              chalk.green,
 };
 
-export function printIocs(reports: IocReport[], cwd: string): void {
+// Indicator types that represent network/contact data worth defanging.
+const DEFANGABLE = new Set<IocType>(['url', 'domain', 'ipv4', 'ipv6', 'email', 'discord-webhook']);
+
+export interface IocPrintOptions { defang?: boolean }
+
+function render(i: Ioc, defang: boolean): string {
+  return defang && DEFANGABLE.has(i.type) ? defangStr(i.value) : i.value;
+}
+
+export function printIocs(reports: IocReport[], cwd: string, opts: IocPrintOptions = {}): void {
+  const defang = opts.defang ?? false;
   console.log();
   for (const r of reports) {
     const rel = path.relative(cwd, r.file);
@@ -33,8 +55,8 @@ export function printIocs(reports: IocReport[], cwd: string): void {
     for (const i of r.iocs) {
       const color = TYPE_COLOR[i.type] ?? chalk.white;
       const loc   = i.line ? chalk.dim(`${i.line}:${i.column}`.padEnd(8)) : ''.padEnd(8);
-      const type  = chalk.bold(`[${i.type.padEnd(13)}]`);
-      const value = truncate(i.value, 90);
+      const type  = chalk.bold(`[${i.type.padEnd(18)}]`);
+      const value = truncate(render(i, defang), 90);
       const ctx   = i.context ? chalk.dim(`  (${i.context})`) : '';
       console.log(`  ${loc}${type}  ${color(value)}${ctx}`);
     }
@@ -42,11 +64,11 @@ export function printIocs(reports: IocReport[], cwd: string): void {
   }
 }
 
-export function formatIocsJson(reports: IocReport[]): string {
-  return JSON.stringify(reports, null, 2);
-}
-
-function truncate(s: string, n: number): string {
-  if (s.length <= n) return s;
-  return s.slice(0, n - 1) + '…';
+export function formatIocsJson(reports: IocReport[], opts: IocPrintOptions = {}): string {
+  if (!opts.defang) return JSON.stringify(reports, null, 2);
+  const defanged = reports.map(r => ({
+    ...r,
+    iocs: r.iocs.map(i => ({ ...i, value: render(i, true) })),
+  }));
+  return JSON.stringify(defanged, null, 2);
 }

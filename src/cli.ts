@@ -19,6 +19,17 @@ import { parseFile } from './parser';
 import type { Finding, ReaperResult, AnalyzerOptions } from './types';
 import type { IocReport } from './reporter/iocs';
 
+// Resolve version from package.json at runtime (works for both tsx-from-src and
+// compiled dist/cli.js — package.json sits one dir above either location).
+function packageVersion(): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 // Expand .html inputs into virtual JS sub-files on disk so every analyzer
 // can treat them as normal inputs. Non-html paths pass through unchanged.
 // Returns a parallel map of expanded-path → origin so callers (e.g. --rewrite)
@@ -66,7 +77,7 @@ const program = new Command();
 program
   .name('reaper')
   .description('Dead code & obfuscation analyzer for JavaScript and TypeScript')
-  .version('0.1.0')
+  .version(packageVersion())
   .argument('<pattern>', 'Glob pattern of files to analyze (e.g. "src/**/*.ts" or "malware.js")')
   .option('-f, --format <format>',    'Output format: console | json | sarif', 'console')
   .option('-o, --output <file>',      'Write output to file instead of stdout')
@@ -75,6 +86,7 @@ program
   .option('-e, --entry <functions>',  'Comma-separated entry point(s) for reachability (e.g. sendCode,init)')
   .option('-w, --rewrite <dir>',      'Statically deobfuscate (HTML→b64→string-array) and write .deobf.js to <dir>')
   .option('-i, --iocs',               'Extract indicators (URLs, domains, IPs, EVM addresses, base64 blobs) and emit a report')
+  .option('--defang',                 'Defang network indicators in IOC output (hxxp://, evil[.]com)')
   .option('--no-unused-imports',      'Skip unused import analysis')
   .option('--no-unused-vars',         'Skip unused variable/function analysis')
   .option('--no-unreachable',         'Skip unreachable code analysis')
@@ -155,13 +167,14 @@ program
           console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
+      const iocOpts = { defang: !!opts.defang };
       if (opts.format === 'json') {
-        const out = formatIocsJson(reports);
+        const out = formatIocsJson(reports, iocOpts);
         if (opts.output) fs.writeFileSync(opts.output, out, 'utf-8');
         else console.log(out);
       } else {
-        printIocs(reports, cwd);
-        if (opts.output) fs.writeFileSync(opts.output, formatIocsJson(reports), 'utf-8');
+        printIocs(reports, cwd, iocOpts);
+        if (opts.output) fs.writeFileSync(opts.output, formatIocsJson(reports, iocOpts), 'utf-8');
       }
       const total = reports.reduce((s, r) => s + r.iocs.length, 0);
       process.exit(total > 0 ? 0 : 1);
