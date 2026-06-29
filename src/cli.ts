@@ -13,6 +13,8 @@ import { printReachability } from './reporter/reachability';
 import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
 import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import { foldConstants } from './analyzers/constfold';
+import { triageSource } from './triage';
+import { printTriage, formatTriageJson } from './reporter/triage';
 import { extractIocs } from './analyzers/iocs';
 import { printIocs, formatIocsJson } from './reporter/iocs';
 import { formatSarif } from './reporter/sarif';
@@ -87,6 +89,7 @@ program
   .option('-e, --entry <functions>',  'Comma-separated entry point(s) for reachability (e.g. sendCode,init)')
   .option('-w, --rewrite <dir>',      'Statically deobfuscate (HTML→b64→string-array→constant-fold) and write .deobf.js to <dir>')
   .option('--no-fold',                'Skip the constant-folding pass during --rewrite')
+  .option('-t, --triage',             'One-shot triage: deobfuscate → findings → IOCs → verdict, in one report')
   .option('-i, --iocs',               'Extract indicators (URLs, domains, IPs, EVM addresses, base64 blobs) and emit a report')
   .option('--defang',                 'Defang network indicators in IOC output (hxxp://, evil[.]com)')
   .option('--no-unused-imports',      'Skip unused import analysis')
@@ -165,6 +168,31 @@ program
       }
       console.log(`\nRewrote ${detected}/${files.length} file(s) to ${path.relative(cwd, outDir)}/`);
       process.exit(0);
+    }
+
+    // ── Triage mode (--triage) ───────────────────────────────────────────────
+    if (opts.triage) {
+      const reports = [];
+      for (const ef of files) {
+        try {
+          const src = fs.readFileSync(ef.path, 'utf-8');
+          reports.push(triageSource(src, ef.path, displayPath(cwd, ef), opts.fold !== false));
+        } catch (err: any) {
+          console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
+        }
+      }
+      const triageOpts = { defang: !!opts.defang };
+      if (opts.format === 'json') {
+        const out = formatTriageJson(reports, triageOpts);
+        if (opts.output) fs.writeFileSync(opts.output, out, 'utf-8');
+        else console.log(out);
+      } else {
+        printTriage(reports, cwd, triageOpts);
+        if (opts.output) fs.writeFileSync(opts.output, formatTriageJson(reports, triageOpts), 'utf-8');
+      }
+      const worst = reports.some(r => r.verdict === 'malicious') ? 2
+        : reports.some(r => r.verdict === 'suspicious') ? 1 : 0;
+      process.exit(worst > 0 ? 1 : 0);
     }
 
     // ── IOC extraction mode (--iocs) ─────────────────────────────────────────
