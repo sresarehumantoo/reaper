@@ -12,6 +12,7 @@ import { analyzeReachability } from './analyzers/reachability';
 import { printReachability } from './reporter/reachability';
 import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
 import { detectAndRewriteStringArray } from './analyzers/stringarray';
+import { foldConstants } from './analyzers/constfold';
 import { extractIocs } from './analyzers/iocs';
 import { printIocs, formatIocsJson } from './reporter/iocs';
 import { formatSarif } from './reporter/sarif';
@@ -84,7 +85,8 @@ program
   .option('-a, --analyze',            'Show full function inventory + reduction report')
   .option('-r, --reachability',       'Cross-scope reachability analysis (eval-aware)')
   .option('-e, --entry <functions>',  'Comma-separated entry point(s) for reachability (e.g. sendCode,init)')
-  .option('-w, --rewrite <dir>',      'Statically deobfuscate (HTML→b64→string-array) and write .deobf.js to <dir>')
+  .option('-w, --rewrite <dir>',      'Statically deobfuscate (HTML→b64→string-array→constant-fold) and write .deobf.js to <dir>')
+  .option('--no-fold',                'Skip the constant-folding pass during --rewrite')
   .option('-i, --iocs',               'Extract indicators (URLs, domains, IPs, EVM addresses, base64 blobs) and emit a report')
   .option('--defang',                 'Defang network indicators in IOC output (hxxp://, evil[.]com)')
   .option('--no-unused-imports',      'Skip unused import analysis')
@@ -135,19 +137,29 @@ program
         const safe  = noExt.replace(/[\\/]/g, '__');
         const stem  = ef.originTag ? `${safe}.${ef.originTag}` : safe;
 
-        if (info.detected && info.rewritten) {
+        // Start from the string-array rewrite when it fired, else the raw
+        // source; then run the generic constant-folder over the result
+        // (unless --no-fold) so atob/fromCharCode/concat/arithmetic collapse too.
+        const base = (info.detected && info.rewritten) ? info.rewritten : src;
+        const fold = opts.fold !== false ? foldConstants(base, ef.path) : { code: base, changes: 0 };
+        const finalCode = fold.code;
+        const recovered = (info.detected && info.rewritten) || fold.changes > 0;
+
+        if (recovered) {
           detected++;
           const out = path.join(outDir, `${stem}.deobf.js`);
-          fs.writeFileSync(out, info.rewritten, 'utf-8');
-          console.log(
-            `${displayPath(cwd, ef)}  →  ${path.relative(cwd, out)}  ` +
-            `(${info.substitutions}/${info.attempted} substitutions, ` +
-            `${info.wrappers.length} wrapper${info.wrappers.length === 1 ? '' : 's'})`
-          );
+          fs.writeFileSync(out, finalCode, 'utf-8');
+          const bits: string[] = [];
+          if (info.detected && info.rewritten) {
+            bits.push(`${info.substitutions}/${info.attempted} substitutions`);
+            bits.push(`${info.wrappers.length} wrapper${info.wrappers.length === 1 ? '' : 's'}`);
+          }
+          if (fold.changes > 0) bits.push(`${fold.changes} folded`);
+          console.log(`${displayPath(cwd, ef)}  →  ${path.relative(cwd, out)}  (${bits.join(', ')})`);
         } else {
           const out = path.join(outDir, `${stem}.js`);
-          fs.writeFileSync(out, src, 'utf-8');
-          const reason = info.error ? `(${info.error})` : '(no obfuscator.io string-array pattern)';
+          fs.writeFileSync(out, finalCode, 'utf-8');
+          const reason = info.error ? `(${info.error})` : '(no obfuscator.io string-array pattern, nothing to fold)';
           console.log(`${displayPath(cwd, ef)}  →  ${path.relative(cwd, out)}  ${reason}`);
         }
       }
