@@ -96,30 +96,46 @@ reaper "src/**/*.js" --no-obfuscation --no-dead-branches
 
 Exit code is non-zero when findings are present, so it composes with CI.
 
+### Triage (one-shot)
+
+```bash
+# Deobfuscate → findings → IOCs → verdict, in a single report
+reaper suspicious.html --triage
+
+# Machine-readable, defanged, for a pipeline / ticket
+reaper suspicious.js --triage --format json --defang --output triage.json
+```
+
+`--triage` runs the whole static chain over each input (HTML extraction → string-array rewrite → constant-fold → obfuscation/encoded findings → IOC extraction) and prints a per-unit report — SHA-256, deobfuscation stats, findings, IOCs — plus a coarse `clean` / `suspicious` / `malicious` verdict with the reasons that drove it. Exit code is non-zero when anything scores above clean.
+
 ### Deobfuscate (rewrite mode)
 
 ```bash
-# HTML → b64 → obfuscator.io string-array deobfuscation, plaintext written to out/
+# HTML → b64 → string-array rewrite → constant-fold, plaintext written to out/
 reaper page.html --rewrite out/
 
 # Same for raw JS
 reaper obfuscated.js --rewrite out/
+
+# Skip the constant-folding pass (string-array rewrite only)
+reaper obfuscated.js --rewrite out/ --no-fold
 ```
 
-For each input the rewriter reports how many wrapper calls were substituted; outputs are `<name>.deobf.js` (or `<name>.js` pass-through when no string-array pattern was detected).
+After the obfuscator.io string-array rewrite, a generic **constant-folding** pass collapses the remaining mechanical obfuscation — `atob`/`unescape`/`decodeURIComponent`, `String.fromCharCode`, `parseInt`/`Number`, string concatenation and `Array.join`, pure-literal arithmetic, `!0`/`![]`/`!![]` truthiness, and `obj["x"]` → `obj.x` — so the output reads like source. For each input the rewriter reports substitutions and folds; outputs are `<name>.deobf.js` (or `<name>.js` pass-through when nothing was recovered).
 
 ### Extract IOCs
 
 ```bash
-# Indicators of compromise (URLs, domains, IPv4, EVM addresses + selectors,
-# base64 blobs, high-entropy strings, emails), with context hints
+# Indicators of compromise, with context hints
 reaper sample.js --iocs
 
-# Machine-readable JSON for downstream pipelines
-reaper sample.js --iocs --format json --output iocs.json
+# Defanged + machine-readable JSON for downstream pipelines / tickets
+reaper sample.js --iocs --defang --format json --output iocs.json
 ```
 
-For best recall, run `--rewrite` first and then `--iocs` against the deobfuscated output — IOCs hidden behind a string-array decoder won't be visible in the raw form.
+Indicator families: URLs, bare domains (public-suffix-correct via `tldts`), IPv4/IPv6, EVM addresses + selectors, BTC/XMR addresses, Telegram bot tokens, Discord webhooks, AWS access keys, JWTs, PEM private keys, Windows paths, registry keys, suspicious LOLBin/PowerShell command lines, base64 blobs, high-entropy strings, and emails — each with a context hint (`prop:data`, `arg-of:fetch`, `init:varName`, `via:base64`). Base64 blobs and `atob()` arguments are decoded and re-scanned, so one-layer-nested indicators surface too. `--defang` rewrites network indicators safely (`hxxp://`, `evil[.]com`).
+
+For best recall, run `--rewrite`/`--triage` first so IOCs hidden behind a string-array decoder or an `atob()` are visible.
 
 ### SARIF output (GitHub Code Scanning)
 
@@ -192,8 +208,12 @@ src/
     evalscope.ts        # eval interception → captured inner-layer sources
     packer.ts           # p,a,c,k,e,r detection + static unpack
     stringarray.ts      # obfuscator.io string-array detect + static rewrite
+    constfold.ts        # generic constant-folding / partial-evaluation pass
+    iocs.ts             # indicator-of-compromise extractor
     strfold.ts          # constant-string folding inside dead bodies
     functions.ts        # function metadata extraction
+  triage.ts             # one-shot deobfuscate → findings → IOCs → verdict
+  util.ts               # shared traverse/generate interop, entropy, defang
   graph/
     callgraph.ts        # build call graph from AST
     reachability.ts     # BFS over the graph, entry-point detection

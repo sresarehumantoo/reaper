@@ -58,8 +58,11 @@ jobs:
       - name: Smoke-test the deobfuscator end-to-end
         run: |
           mkdir -p build/ci
-          npx tsx src/cli.ts examples/etherhiding/sample.html --rewrite build/ci
-          # The deobf output must match the committed artifact bit-for-bit.
+          # --no-fold: assert the string-array rewrite stage reproduces the
+          # committed artifact bit-for-bit. The constant-folding pass (on by
+          # default in --rewrite) intentionally transforms the output further
+          # and is covered by unit tests.
+          npx tsx src/cli.ts examples/etherhiding/sample.html --rewrite build/ci --no-fold
           diff build/ci/examples__etherhiding__sample.data-uri-0.deobf.js \
                examples/etherhiding/artifacts/stage1/payload.deobf.js
 

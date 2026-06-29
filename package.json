@@ -43,12 +43,14 @@
     "prepublishOnly": "npm run build && npx tsc --noEmit && npm test"
   },
   "dependencies": {
+    "@babel/generator": "^7.24.0",
     "@babel/parser": "^7.24.0",
     "@babel/traverse": "^7.24.0",
     "@babel/types": "^7.24.0",
     "chalk": "^4.1.2",
     "commander": "^14.0.3",
-    "fast-glob": "^3.3.2"
+    "fast-glob": "^3.3.2",
+    "tldts": "^6.1.86"
   },
   "devDependencies": {
     "@types/babel__generator": "^7.27.0",
