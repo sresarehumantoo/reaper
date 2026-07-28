@@ -3,11 +3,11 @@
 This directory contains a complete, reproducible analysis of an in-the-wild **ClearFake / ClickFix** campaign that hides its C2 address on the **Polygon** blockchain (EtherHiding) and ends in a **XLoader / Formbook** infostealer delivered through a fake Cloudflare "verify you are human" overlay. Every JavaScript and PowerShell artifact named below is committed; you can follow the analysis without touching the live infrastructure.
 
 > [!CAUTION]
-> **The files under `artifacts/` are real, live malware**, captured from a compromised WordPress site, an attacker smart contract on Polygon, and an attacker HTTP C2. They are committed as inert data files (`.js`, `.b64`, `.hex`, `.ps1`, `.txt`) and will not run unless you deliberately execute them. **Do not paste `clipboard-command.txt` into Run/PowerShell, do not `node` any `.js`, do not run any `.ps1`.** The final native binary (`xloader.exe`) is deliberately **not** committed — only its hashes and PE metadata are recorded, in `artifacts/stage5-payload/README-native-payload.txt`.
+> **The files under `artifacts/` are real, live malware**, captured from a compromised WordPress site, an attacker smart contract on Polygon, and an attacker HTTP C2. They are committed as inert data files (`.js`, `.b64`, `.hex`, `.ps1`, `.txt`) and will not run unless you deliberately execute them. **Do not paste `clipboard-command.txt` into Run/PowerShell, do not `node` any `.js`, do not run any `.ps1`.** The final native binary (`xloader.exe`) is deliberately **not** committed; only its hashes and PE metadata are recorded, in `artifacts/stage5-payload/README-native-payload.txt`.
 
 ## How this differs from the sibling `etherhiding/` example
 
-Same family (EtherHiding-staged ClickFix), different everything else — a good contrast pair:
+Same family (EtherHiding-staged ClickFix), different everything else. A good contrast pair:
 
 | | `etherhiding/` | `clickfix-xloader/` (this one) |
 |---|---|---|
@@ -46,7 +46,7 @@ artifacts/
 │   ├── 2.stager.as-served.ps1      XOR-77 nested layers, from /<hash>?_=1
 │   ├── 3.dropper.deobf.ps1         fully unwrapped dropper
 │   └── dropper-iocs.txt            decoded URLs + archive password
-└── stage5-payload/               terminal native payload (metadata only — binary NOT committed)
+└── stage5-payload/               terminal native payload (metadata only, binary NOT committed)
     └── README-native-payload.txt   7za.exe + payload.7z + xloader.exe hashes & PE facts
 ```
 
@@ -60,7 +60,7 @@ Every step below operates on the committed files. The only steps that touch the 
 node dist/cli.js examples/clickfix-xloader/sample.html
 ```
 
-reaper pulls the inline `<script>` out of the HTML and runs every analyzer on it. Expected output — three findings that describe the whole visible layer:
+reaper pulls the inline `<script>` out of the HTML and runs every analyzer on it. Expected output: three findings that describe the whole visible layer:
 
 ```
   ● [OBFUSCATION    ] atob() call — base64 decode often used to stage encoded payloads
@@ -72,7 +72,7 @@ That is the entire behaviour reaper can see before decoding: base64 in, `new Fun
 
 ### 2. Deobfuscate the stage-1 loader
 
-The loader is not obfuscator.io — it is a hand-rolled `atob(...)` → XOR-`12` → `new Function()` wrapper. Recover the plaintext with a one-liner (the committed `loader.deobf.js` is the expected result):
+The loader is not obfuscator.io; it is a hand-rolled `atob(...)` → XOR-`12` → `new Function()` wrapper. Recover the plaintext with a one-liner (the committed `loader.deobf.js` is the expected result):
 
 ```sh
 node -e '
@@ -90,9 +90,9 @@ An empty diff confirms the recovery. Read `loader.deobf.js`: ~30 lines that iter
 node dist/cli.js --triage --defang examples/clickfix-xloader/artifacts/stage1-loader/loader.deobf.js
 ```
 
-Expected: `SUSPICIOUS`, 9 IOCs — the Polygon contract address `0xB6bC9e1D...C1f2` and the eight fallback RPC endpoints the loader rotates through.
+Expected: `SUSPICIOUS`, 9 IOCs: the Polygon contract address `0xB6bC9e1D...C1f2` and the eight fallback RPC endpoints the loader rotates through.
 
-### 4. (Optional — one network read) Fetch the C2 address from the contract
+### 4. (Optional: one network read) Fetch the C2 address from the contract
 
 This is the **only step that reads the blockchain**. It is an `eth_call` (a read: no gas, no signed transaction). The sibling example's helper handles Polygon via `--rpc`/`--selector`:
 
@@ -102,7 +102,7 @@ node examples/etherhiding/fetch-evm-payload.mjs \
     --selector 0xb68d1809 --rpc https://polygon.drpc.org --raw --json
 ```
 
-`preview_utf8` should read `https://enter-code-cdn.info`, matching the committed `artifacts/stage2-contract/c2-string.txt`. **If it differs, the operator has rotated the C2 on-chain** — a finding in itself (see REPORT §2.1).
+`preview_utf8` should read `https://enter-code-cdn.info`, matching the committed `artifacts/stage2-contract/c2-string.txt`. **If it differs, the operator has rotated the C2 on-chain** (a finding in itself; see REPORT §2.1).
 
 ### 5. Deobfuscate the ClickFix overlay
 
@@ -154,7 +154,7 @@ The dropper downloads a 7-Zip extractor and a password-protected archive (`passw
 cat examples/clickfix-xloader/artifacts/stage5-payload/README-native-payload.txt
 ```
 
-`xloader.exe` is **819 MB on disk but only ~250 KB is real code** — the rest is null padding to defeat AV/sandbox size caps. The binary is not committed; its SHA-256 and PE facts are recorded here for pivoting.
+`xloader.exe` is **819 MB on disk but only ~250 KB is real code**; the rest is null padding to defeat AV/sandbox size caps. The binary is not committed; its SHA-256 and PE facts are recorded here for pivoting.
 
 ## Verifying integrity
 

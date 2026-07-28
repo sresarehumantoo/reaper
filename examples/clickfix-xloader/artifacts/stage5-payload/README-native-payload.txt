@@ -1,8 +1,8 @@
-FINAL NATIVE PAYLOAD — NOT COMMITTED
+FINAL NATIVE PAYLOAD (NOT COMMITTED)
 
 Unlike the JavaScript/PowerShell stages, the terminal Windows binary is NOT
 shipped in this repository. It is a live, packed XLoader/Formbook sample and,
-as delivered, is 781 MB of null-padding around ~250 KB of real code — far too
+as delivered, is 781 MB of null-padding around ~250 KB of real code, far too
 large and too dangerous to commit. Only its metadata is recorded here.
 
 Retrieval chain (see ../stage4-powershell/dropper-iocs.txt):
@@ -31,7 +31,7 @@ File facts (observed 2026-07-28):
     imports      : KERNEL32, USER32, GDI32, ole32, OLEAUT32 (minimal; packed)
     tells        : IsDebuggerPresent, VirtualProtect, LoadLibraryExW,
                    GetProcAddress, CreateThread  (in-memory unpack + anti-debug)
-    family       : XLoader / Formbook (infostealer) — inferred from filename,
+    family       : XLoader / Formbook (infostealer), inferred from filename,
                    packing, and delivery; C2 config is encrypted in the stub.
 
 Why the file bloat matters: the archive is 230 KB on the wire but inflates to
