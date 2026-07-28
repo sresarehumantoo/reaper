@@ -81,7 +81,11 @@ demo: $(NODE_STAMP)  ## End-to-end deobfuscate the EtherHiding fixture
 	@head -30 $(BUILD_DIR)/demo/*.deobf.js
 
 verify-examples:  ## Verify every committed artifact still hashes correctly
-	@cd examples/etherhiding && sha256sum -c SHA256SUMS
+	@for sums in examples/*/SHA256SUMS; do \
+		dir=$$(dirname "$$sums"); \
+		echo "== $$dir =="; \
+		( cd "$$dir" && sha256sum -c SHA256SUMS ) || exit 1; \
+	done
 
 ## ── CI / quality gates ──────────────────────────────────────────────────────
 

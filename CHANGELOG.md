@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **`examples/clickfix-xloader/`** — new reverse-engineering walkthrough of an in-the-wild **ClearFake / ClickFix** campaign that stages its C2 on **Polygon mainnet** (EtherHiding) and ends in a **XLoader / Formbook** infostealer. Captured 2026-07-28 from the compromised WordPress site `cocobproductions.com`. Ships every JavaScript and PowerShell stage as inert data — the injected `atob`+XOR-12+`new Function` loader and its plaintext decode, the `eth_call` reply that yields the C2 hostname (contract `0xB6bC9e1D…C1f2`, selector `0xb68d1809` → `enter-code-cdn.info`), the 44 KB fake-Cloudflare "verify you are human" overlay (`atob`+XOR-177) with its AES-GCM victim beacon and the clipboard PowerShell lure, and the three-layer PowerShell chain (XOR-42 downloader → XOR-77/base64 stager → 7-Zip dropper). The terminal `xloader.exe` is recorded as hashes + PE metadata only (not committed): a packed PE32+ bloated to 819 MB (~250 KB real) to defeat AV/sandbox size caps. Includes step-by-step `README.md`, analysis `REPORT.md`, and a verifying `SHA256SUMS`. A good contrast to `examples/etherhiding/` (Polygon vs BSC testnet, PowerShell vs rundll32/WebDAV, native payload retrieved vs not) and the first non-BSC use of `fetch-evm-payload.mjs`.
+- **`make verify-examples` now checks every example** that ships a `SHA256SUMS` (previously only `examples/etherhiding/`), so `clickfix-xloader` and `propellerads-sfp` artifacts are integrity-verified too.
+
 ## [0.2.0] - 2026-06-29
 
 ### Added

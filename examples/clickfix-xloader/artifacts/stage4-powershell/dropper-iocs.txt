@@ -1,0 +1,14 @@
+Decoded from 3.dropper.deobf.ps1 (all values were XOR-obfuscated byte arrays):
+
+archive password : password1234                                          (base64 cGFzc3dvcmQxMjM0)
+extractor EXE URL: http://enter-code-cdn.info/7z                          (7za.exe, XOR key 35)
+7z ARCHIVE URL   : http://enter-code-cdn.info/<64hex>                     (XOR key 25)
+final beacon URL : http://enter-code-cdn.info/p/<64hex>                   (XOR key 112, DownloadString success ping)
+
+Concrete values observed 2026-07-28:
+  7z archive : http://enter-code-cdn.info/e27ed25667896b089a96f0e440bdbdf52dfa53a5355788c165337ff74cc38768
+  beacon     : http://enter-code-cdn.info/p/e27ed25667896b089a96f0e440bdbdf52dfa53a5355788c165337ff74cc38768
+
+Behaviour: download 7za.exe + password-protected .7z to random %TEMP% dirs,
+extract with password1234, locate xloader.exe, Start-Process it, delete the .7z,
+then DownloadString the /p/ beacon. Falls back to .NET ZipFile if 7za download fails.
