@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import path from 'path';
 import type { Ioc, IocType } from '../analyzers/iocs';
-import { defang as defangStr, truncate } from '../util';
+import { renderIocValue, truncate, locLabel } from '../util';
 
 export interface IocReport {
   file: string;
@@ -30,14 +30,9 @@ const TYPE_COLOR: Partial<Record<IocType, (s: string) => string>> = {
   'email':              chalk.green,
 };
 
-// Indicator types that represent network/contact data worth defanging.
-const DEFANGABLE = new Set<IocType>(['url', 'domain', 'ipv4', 'ipv6', 'email', 'discord-webhook']);
-
 export interface IocPrintOptions { defang?: boolean }
 
-function render(i: Ioc, defang: boolean): string {
-  return defang && DEFANGABLE.has(i.type) ? defangStr(i.value) : i.value;
-}
+const render = (i: Ioc, defang: boolean): string => renderIocValue(i.type, i.value, defang);
 
 export function printIocs(reports: IocReport[], cwd: string, opts: IocPrintOptions = {}): void {
   const defang = opts.defang ?? false;
@@ -54,7 +49,7 @@ export function printIocs(reports: IocReport[], cwd: string, opts: IocPrintOptio
 
     for (const i of r.iocs) {
       const color = TYPE_COLOR[i.type] ?? chalk.white;
-      const loc   = i.line ? chalk.dim(`${i.line}:${i.column}`.padEnd(8)) : ''.padEnd(8);
+      const loc   = i.line ? chalk.dim(locLabel(i.line, i.column).padEnd(8)) : ''.padEnd(8);
       const type  = chalk.bold(`[${i.type.padEnd(18)}]`);
       const value = truncate(render(i, defang), 90);
       const ctx   = i.context ? chalk.dim(`  (${i.context})`) : '';

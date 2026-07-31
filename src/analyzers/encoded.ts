@@ -135,43 +135,48 @@ function collectXorDecoders(ast: File, out: Map<string, XorDecoder>): void {
       const p0 = params[0].name;
       const p1 = params[1].name;
 
-      const block = t.isBlockStatement(node.body) ? node.body : null;
-      if (!block) return;
-      const code = serialize(block);
+      if (!t.isBlockStatement(node.body)) return;
 
-      // Heuristic: body uses charCodeAt on both params, BinaryExpression
-      // with operator '^', and accumulates via String.fromCharCode.
-      const usesXor    = /\^/.test(code);
-      const usesCC     = /charCodeAt/.test(code);
-      const usesFromCC = /fromCharCode/.test(code);
-      const usesMod    = /%/.test(code);                    // key wraparound
-      const refsP0     = new RegExp(`\\b${escape(p0)}\\b`).test(code);
-      const refsP1     = new RegExp(`\\b${escape(p1)}\\b`).test(code);
+      // Walk the body once (instead of JSON.stringify-ing the whole subtree and
+      // running per-function regexes over the text) to detect the XOR-decoder
+      // shape: charCodeAt on both params, a `^` op, accumulation via
+      // fromCharCode, and a `% key.length` wraparound.
+      let usesXor = false, usesCC = false, usesFromCC = false, usesMod = false;
+      let refsP0 = false, refsP1 = false;
+      let keyParam: string | null = null;
 
-      if (!(usesXor && usesCC && usesFromCC && refsP0 && refsP1)) return;
-      // Mod-by-key-length is the most reliable marker; require it.
-      if (!usesMod) return;
+      path.traverse({
+        BinaryExpression(inner) {
+          if (inner.node.operator === '^') usesXor = true;
+          if (inner.node.operator === '%') {
+            usesMod = true;
+            // The param whose `.length` is the modulus is the KEY.
+            const r = inner.node.right;
+            if (keyParam === null && t.isMemberExpression(r) && !r.computed &&
+                t.isIdentifier(r.object) && t.isIdentifier(r.property) &&
+                r.property.name === 'length') {
+              keyParam = r.object.name;
+            }
+          }
+        },
+        MemberExpression(inner) {
+          if (!inner.node.computed && t.isIdentifier(inner.node.property)) {
+            if (inner.node.property.name === 'charCodeAt')   usesCC = true;
+            if (inner.node.property.name === 'fromCharCode') usesFromCC = true;
+          }
+        },
+        Identifier(inner) {
+          if (inner.node.name === p0) refsP0 = true;
+          else if (inner.node.name === p1) refsP1 = true;
+        },
+      });
 
-      // Decide which param is the ciphertext: whichever is indexed without
-      // the modulo wraparound. Heuristic: the param referenced inside a
-      // `% paramName.length` is the KEY (the other is the ciphertext).
-      const keyParam = /(\w+)\s*\.\s*length\s*\)?\s*[,\)]/.exec(code)?.[1];
-      const swapped  = keyParam === p0;     // first param is the key → swapped
+      if (!(usesXor && usesCC && usesFromCC && usesMod && refsP0 && refsP1)) return;
 
-      out.set(name, { swapped });
+      // first param is the key → arguments are (key, ciphertext), i.e. swapped
+      out.set(name, { swapped: keyParam === p0 });
     },
   });
-}
-
-function serialize(n: t.Node): string {
-  // Cheap "what's in this subtree" check — we look at all string-able
-  // tokens via JSON.stringify. Not a real source representation, but
-  // good enough for substring tests.
-  try { return JSON.stringify(n); } catch { return ''; }
-}
-
-function escape(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function isMostlyPrintable(s: string): boolean {

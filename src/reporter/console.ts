@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import path from 'path';
 import type { Finding, ReaperResult } from '../types';
+import { locLabel } from '../util';
 
 const TYPE_LABEL: Record<Finding['type'], string> = {
   'unreachable':         'UNREACHABLE    ',
@@ -33,10 +34,7 @@ const CONFIDENCE_BADGE: Record<Finding['confidence'], string> = {
 };
 
 function formatLocation(f: Finding): string {
-  const loc = f.endLine && f.endLine !== f.line
-    ? `${f.line}:${f.column}-${f.endLine}`
-    : `${f.line}:${f.column}`;
-  return chalk.dim(loc);
+  return chalk.dim(locLabel(f.line, f.column, f.endLine));
 }
 
 export function printFindings(result: ReaperResult, cwd: string): void {

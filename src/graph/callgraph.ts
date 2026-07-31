@@ -7,7 +7,7 @@
  * so that we don't accidentally mark a function dead because it was passed
  * as a callback rather than called directly.
  */
-import { traverse } from '../util';
+import { forEachNamedFunction } from '../util';
 import * as t from '@babel/types';
 import type { File } from '@babel/types';
 import type { NodePath } from '@babel/traverse';
@@ -54,41 +54,19 @@ export function buildCallGraph(ast: File): CallGraphResult {
   const graph: CallGraph = new Map();
   const meta:  Map<string, FnMeta> = new Map();
 
-  traverse(ast, {
-    FunctionDeclaration(path) {
-      if (!path.node.id) return;
-      const name = path.node.id.name;
-      if (graph.has(name)) return;
+  forEachNamedFunction(ast, ({ name, kind, fnNode, path }) => {
+    if (graph.has(name)) return;
 
-      graph.set(name, collectRefs(path, name));
-      meta.set(name, {
-        line:    path.node.loc?.start.line ?? 0,
-        endLine: path.node.loc?.end.line   ?? 0,
-        chars:   (path.node.end ?? 0) - (path.node.start ?? 0),
-      });
-    },
-
-    VariableDeclarator(path) {
-      if (!t.isIdentifier(path.node.id)) return;
-      const init = path.node.init;
-      if (
-        !init ||
-        (!t.isFunctionExpression(init) && !t.isArrowFunctionExpression(init))
-      ) return;
-
-      const name = path.node.id.name;
-      if (graph.has(name)) return;
-
-      // Traverse the init (the function body), not the declarator,
-      // to avoid capturing the variable's own name as a self-ref.
-      const initPath = path.get('init') as NodePath<any>;
-      graph.set(name, collectRefs(initPath, name));
-      meta.set(name, {
-        line:    path.node.loc?.start.line ?? 0,
-        endLine: path.node.loc?.end.line   ?? 0,
-        chars:   (init.end ?? 0) - (init.start ?? 0),
-      });
-    },
+    // For a declaration, traverse the FunctionDeclaration path itself; for a
+    // declarator, traverse the init (the function body) rather than the
+    // declarator, so the variable's own name isn't captured as a self-ref.
+    const refsPath = (kind === 'declaration' ? path : path.get('init')) as NodePath<any>;
+    graph.set(name, collectRefs(refsPath, name));
+    meta.set(name, {
+      line:    path.node.loc?.start.line ?? 0,
+      endLine: path.node.loc?.end.line   ?? 0,
+      chars:   (fnNode.end ?? 0) - (fnNode.start ?? 0),
+    });
   });
 
   return { graph, meta };

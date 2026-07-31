@@ -1,15 +1,13 @@
 import chalk from 'chalk';
 import path from 'path';
 import type { TriageReport, Verdict } from '../triage';
-import { defang as defangStr } from '../util';
+import { renderIocValue, locLabel } from '../util';
 
 const VERDICT_STYLE: Record<Verdict, (s: string) => string> = {
   clean:      chalk.green,
   suspicious: chalk.yellow,
   malicious:  chalk.red.bold,
 };
-
-const DEFANGABLE = new Set(['url', 'domain', 'ipv4', 'ipv6', 'email', 'discord-webhook']);
 
 export interface TriagePrintOptions { defang?: boolean }
 
@@ -35,7 +33,7 @@ export function printTriage(reports: TriageReport[], cwd: string, opts: TriagePr
     if (r.findings.length) {
       console.log(chalk.bold(`  findings (${r.findings.length}):`));
       for (const f of r.findings.slice(0, 12)) {
-        console.log(`    ${chalk.dim(`${f.line}:${f.column}`.padEnd(8))}${chalk.bold(`[${f.type}]`)} ${f.message}`);
+        console.log(`    ${chalk.dim(locLabel(f.line, f.column).padEnd(8))}${chalk.bold(`[${f.type}]`)} ${f.message}`);
       }
       if (r.findings.length > 12) console.log(chalk.dim(`    … ${r.findings.length - 12} more`));
     }
@@ -43,7 +41,7 @@ export function printTriage(reports: TriageReport[], cwd: string, opts: TriagePr
     if (r.iocs.length) {
       console.log(chalk.bold(`  iocs (${r.iocs.length}):`));
       for (const i of r.iocs.slice(0, 20)) {
-        const v = defang && DEFANGABLE.has(i.type) ? defangStr(i.value) : i.value;
+        const v = renderIocValue(i.type, i.value, defang);
         const ctx = i.context ? chalk.dim(`  (${i.context})`) : '';
         console.log(`    ${chalk.bold(`[${i.type.padEnd(18)}]`)} ${v}${ctx}`);
       }
@@ -61,7 +59,7 @@ export function formatTriageJson(reports: TriageReport[], opts: TriagePrintOptio
   if (!opts.defang) return JSON.stringify(reports, null, 2);
   const out = reports.map(r => ({
     ...r,
-    iocs: r.iocs.map(i => DEFANGABLE.has(i.type) ? { ...i, value: defangStr(i.value) } : i),
+    iocs: r.iocs.map(i => ({ ...i, value: renderIocValue(i.type, i.value, true) })),
   }));
   return JSON.stringify(out, null, 2);
 }
