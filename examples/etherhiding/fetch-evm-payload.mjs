@@ -61,14 +61,19 @@ if (!/^0x[0-9a-fA-F]{8}$/.test(selector)) {
   console.error(`bad selector: ${selector} (want 0x + 8 hex chars)`); process.exit(2);
 }
 
-// RPC URL must be http(s). Reject file://, gopher://, ldap://, etc. (SSRF
-// defense — without this, --rpc file:///etc/passwd or --rpc
-// http://169.254.169.254/... could be coerced if this script is ever wrapped
-// in a service). Also reject obvious link-local / loopback metadata targets.
+// RPC URL must be http(s). Reject file://, gopher://, ldap://, etc., and the
+// cloud-metadata / link-local range (169.254.0.0/16, incl. 169.254.169.254),
+// which has no legitimate RPC use — SSRF defense for when this is wrapped in a
+// service. Loopback / private ranges are intentionally allowed: pointing --rpc
+// at a local dev node (127.0.0.1:8545) is a normal, legitimate use.
 try {
   const u = new URL(rpc);
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
     throw new Error(`scheme ${u.protocol} not allowed (use http or https)`);
+  }
+  const host = u.hostname.toLowerCase();
+  if (/^169\.254\./.test(host) || host === '[fe80::]' || host.startsWith('fe80:')) {
+    throw new Error(`link-local/metadata host ${host} not allowed`);
   }
 } catch (e) {
   console.error(`bad --rpc: ${e.message}`); process.exit(2);

@@ -1,10 +1,7 @@
-import _traverse from '@babel/traverse';
+import { traverse } from '../util';
 import type * as t from '@babel/types';
 import type { File } from '@babel/types';
 import type { Finding } from '../types';
-
-// CJS/ESM interop for @babel/traverse
-const traverse = (typeof _traverse === 'function' ? _traverse : (_traverse as any).default) as typeof _traverse;
 
 const TERMINATING = [
   'ReturnStatement',

@@ -11,13 +11,9 @@
  * Also detects variants where the key array is built via .split('|').
  */
 
-import _traverse from '@babel/traverse';
+import { traverse } from '../util';
 import * as t from '@babel/types';
 import type { File } from '@babel/types';
-
-const traverse = (typeof _traverse === 'function'
-  ? _traverse
-  : (_traverse as any).default) as typeof _traverse;
 
 export interface PackerInfo {
   detected:   boolean;

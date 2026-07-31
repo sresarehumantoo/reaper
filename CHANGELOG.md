@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Every analyzer now imports the shared `traverse` from `src/util.ts`** instead of repeating the `@babel/traverse` CJS/ESM interop dance (`(_traverse as any).default`) — removed from 11 files (branches, encoded, functions, imports, obfuscation, packer, reachability, references, strfold, unreachable, callgraph).
+- **Removed dead exports:** `loadSource`, `sourceFromString`, `SourceUnit` (parser), `foldStringsInFunction` (strfold), `printableRatio` (util) — none had callers.
+- Docker sandbox shim (`docker/runner.js`) normalises the `node:` module prefix, so `require('node:child_process')` is blocked the same as the bare name; `fetch-evm-payload.mjs` now rejects the link-local/cloud-metadata range (169.254.0.0/16) as its comment always claimed, while still allowing loopback/private RPC hosts for local dev nodes.
+- `strfold` folds `+` chains via an iterative left-spine walk and `path.skip()`s consumed initializers (avoids re-descending folded subtrees; pathologically deep inputs remain bounded by Babel and are caught by callers).
+
 ### Fixed
 
 - **Reachability no longer misattributes reconstructed strings.** `collectFolded` filtered on `f.line >= 0` (always true), so every dead function was credited with every folded string in the layer. `FoldedString` now carries source char offsets and each fold attaches only to the function whose range encloses it. Folding also runs over the static outer AST, not only eval layers, so dead functions in plain (non-packed) obfuscated files get their constants reconstructed too.

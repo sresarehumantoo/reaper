@@ -28,17 +28,6 @@ export function shannonEntropy(s: string): number {
   return h;
 }
 
-/** Fraction of characters that are printable ASCII (incl. tab/newline). */
-export function printableRatio(s: string): number {
-  if (s.length === 0) return 0;
-  let printable = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if ((c >= 32 && c < 127) || c === 9 || c === 10 || c === 13) printable++;
-  }
-  return printable / s.length;
-}
-
 export function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + '…';
 }
