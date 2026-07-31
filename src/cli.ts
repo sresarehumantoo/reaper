@@ -304,7 +304,7 @@ program
     }
 
     if (opts.format === 'json' || opts.format === 'sarif') {
-      const output = opts.format === 'sarif' ? formatSarif(result, cwd) : formatJson(result);
+      const output = opts.format === 'sarif' ? formatSarif(result, cwd, packageVersion()) : formatJson(result);
       if (opts.output) {
         fs.writeFileSync(opts.output, output, 'utf-8');
       } else {

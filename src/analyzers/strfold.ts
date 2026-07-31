@@ -26,6 +26,8 @@ export interface FoldedString {
   value:   string;
   line:    number;
   pieces:  number;   // how many string literals were concatenated
+  start:   number | null;   // char offset of the declaration/return (for enclosing-fn attribution)
+  end:     number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +52,8 @@ export function foldStrings(ast: File): FoldedString[] {
         value:   result.value,
         line:    path.node.loc?.start.line ?? 0,
         pieces:  result.pieces,
+        start:   path.node.start ?? null,
+        end:     path.node.end ?? null,
       });
     },
 
@@ -64,6 +68,8 @@ export function foldStrings(ast: File): FoldedString[] {
         value:   result.value,
         line:    path.node.loc?.start.line ?? 0,
         pieces:  result.pieces,
+        start:   path.node.start ?? null,
+        end:     path.node.end ?? null,
       });
     },
   });

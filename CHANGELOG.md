@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reachability no longer misattributes reconstructed strings.** `collectFolded` filtered on `f.line >= 0` (always true), so every dead function was credited with every folded string in the layer. `FoldedString` now carries source char offsets and each fold attaches only to the function whose range encloses it. Folding also runs over the static outer AST, not only eval layers, so dead functions in plain (non-packed) obfuscated files get their constants reconstructed too.
+- **Constant-folding no longer silently no-ops on JSX / decorators / Flow.** `foldConstants` re-parsed with only the `typescript` plugin, so any input using other syntax threw and returned the source unfolded; it now uses the shared `parseCode` options. `decodeURI(...)` is folded with real `decodeURI` semantics (was conflated with `decodeURIComponent`, over-decoding reserved chars like `%2F`).
+- **Unreachable-code analysis now scans `switch` cases** (`case x: return; foo();`), not just block bodies.
+- **SARIF output** reports the real tool version (was hardcoded `0.1.0`) and no longer drops findings at column 0.
+
 ### Security
 
 - **String-array deobfuscation no longer executes sample code in-process.** `detectAndRewriteStringArray` (reached by `--rewrite` and `--triage`) previously booted the sample's array-fn, decoder, and rotator IIFE via an in-process `node:vm`, whose `timeout` only interrupts *synchronous* script — so a crafted sample could OOM reaper's heap or schedule a microtask that hangs the process after `runInContext` returns. All execution now happens in a hardened child process (`src/analyzers/isolate.ts` + `stringarray-worker.cjs`): `--frozen-intrinsics`, `--max-old-space-size=128`, stripped env, and a hard wall-clock kill. Verified against synchronous-loop, unbounded-allocation, and infinite-microtask samples — the analyzer now returns an error instead of hanging/OOMing. All AST work stays in-process; rewrite output is byte-identical to before (existing reproducibility tests still pass). The eval-scope capture path was moved onto the same shared `runIsolated` helper.

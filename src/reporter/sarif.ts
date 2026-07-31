@@ -81,7 +81,7 @@ function buildResult(f: Finding, cwd: string) {
   const region: Record<string, number> = {
     startLine: Math.max(1, f.line || 1),
   };
-  if (f.column > 0) region.startColumn = f.column + 1;        // SARIF is 1-based
+  if (f.column >= 0) region.startColumn = f.column + 1;       // Babel col is 0-based; SARIF is 1-based (col 0 → 1)
   if (f.endLine && f.endLine > f.line) region.endLine = f.endLine;
 
   return {

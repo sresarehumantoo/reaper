@@ -141,13 +141,19 @@ export function analyzeReachability(
   const { reachable, dead, missingRoots } = computeReachability(mergedGraph, roots);
 
   // ── Step 6: string folding inside dead function bodies ───────────────────
-  // Reuses the per-layer ASTs we already parsed in Step 3.
+  // Fold over the static outer AST *and* every eval layer — a dead function in
+  // a plain (non-packed) obfuscated file has its constants reconstructed too,
+  // not only functions recovered from eval layers.
   const foldedByFn = new Map<string, FoldedString[]>();
 
-  for (const [, { ast: layerAst }] of layerAsts) {
+  const foldTargets: File[] = [];
+  if (outerAst) foldTargets.push(outerAst);
+  for (const [, { ast: layerAst }] of layerAsts) foldTargets.push(layerAst);
+
+  for (const target of foldTargets) {
     try {
-      const folded = foldStrings(layerAst);
-      attributeFoldedStrings(layerAst, folded, dead, foldedByFn);
+      const folded = foldStrings(target);
+      attributeFoldedStrings(target, folded, dead, foldedByFn);
     } catch { /* skip */ }
   }
 
@@ -242,7 +248,11 @@ function collectFolded(
   out:    Map<string, FoldedString[]>,
 ): void {
   if (start == null || end == null) return;
-  const matches = folded.filter(f => f.line >= 0); // all of them — lines are 1-based in minified
+  // Attribute only the folds whose source range falls inside this function's
+  // [start, end). Filtering on `f.line >= 0` (always true) previously credited
+  // every dead function with every fold in the layer.
+  const matches = folded.filter(f =>
+    f.start != null && f.end != null && f.start >= start && f.end <= end);
   if (matches.length === 0) return;
   if (!out.has(fnName)) out.set(fnName, []);
   out.get(fnName)!.push(...matches);
