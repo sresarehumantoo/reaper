@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs';
-import { parseFile } from '../parser';
+import { parseFile, readSourceCapped } from '../parser';
 import { inventoryFunctions } from '../analyzers/functions';
 import type { FunctionEntry } from '../analyzers/functions';
 
@@ -19,7 +19,7 @@ export interface FileAnalysis {
 }
 
 export function analyzeFileInventory(filePath: string): FileAnalysis {
-  const source = fs.readFileSync(filePath, 'utf-8');
+  const source = readSourceCapped(filePath);
   const ast    = parseFile(filePath);
   const fns    = inventoryFunctions(ast, source);
 

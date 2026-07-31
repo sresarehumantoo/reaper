@@ -21,8 +21,8 @@
  * are normalised for free because the pass re-generates from the AST.
  */
 
-import { parse } from '@babel/parser';
 import * as t from '@babel/types';
+import { parseCode } from '../parser';
 import { traverse, generate } from '../util';
 
 export interface FoldResult {
@@ -41,11 +41,11 @@ export function foldConstants(source: string, filePath = 'input.js'): FoldResult
 
   try {
     for (; passes < MAX_PASSES; passes++) {
-      const ast = parse(code, {
-        sourceType: 'unambiguous',
-        allowReturnOutsideFunction: true,
-        plugins: /\.tsx?$/.test(filePath) ? ['typescript'] : [],
-      });
+      // Use the shared parser options so folding sees the same syntax the rest
+      // of the pipeline does — JSX, decorators, optional chaining, Flow. The
+      // previous inline parse only enabled `typescript`, so any input using
+      // those threw and silently returned the source unfolded.
+      const ast = parseCode(code, filePath);
 
       const changed = runPass(ast);
       if (changed === 0) break;
@@ -171,7 +171,15 @@ function foldCall(node: t.CallExpression): string | number | undefined {
   }
   // unescape / decodeURI / decodeURIComponent
   if ((fn === 'unescape' || fn === 'decodeURI' || fn === 'decodeURIComponent') && t.isStringLiteral(a0)) {
-    try { return fn === 'unescape' ? globalThis.unescape(a0.value) : decodeURIComponent(a0.value); } catch { return undefined; }
+    try {
+      // Each has distinct semantics — decodeURI leaves reserved chars (%2F etc.)
+      // intact, decodeURIComponent decodes them; conflating them yields wrong
+      // constants.
+      const impl = fn === 'unescape' ? globalThis.unescape
+                 : fn === 'decodeURI' ? decodeURI
+                 : decodeURIComponent;
+      return impl(a0.value);
+    } catch { return undefined; }
   }
   // parseInt("ff", 16) / parseInt("0x1f")
   if (fn === 'parseInt' && t.isStringLiteral(a0)) {
@@ -218,7 +226,7 @@ function truthinessOf(n: t.Node): boolean | undefined {
 
 function evalBinary(op: string, l: any, r: any): string | number | boolean | undefined {
   switch (op) {
-    case '+':   return (typeof l === 'string' || typeof r === 'string') ? l + r : l + r;
+    case '+':   return l + r;   // JS handles string vs numeric coercion
     case '-':   return l - r;
     case '*':   return l * r;
     case '/':   return r === 0 ? undefined : l / r;

@@ -54,3 +54,9 @@ test('constfold: does not divide by zero', () => {
   const r = foldConstants('var x = 1 / 0;');
   assert.equal(r.changes, 0);
 });
+
+test('constfold: decodeURI keeps reserved chars, decodeURIComponent decodes them', () => {
+  // %2F is a reserved char: decodeURI must leave it, decodeURIComponent decodes to "/"
+  assert.match(fold('var a = decodeURI("%2Fpath");'),          /%2Fpath/);
+  assert.match(fold('var b = decodeURIComponent("%2Fpath");'), /"\/path"/);
+});

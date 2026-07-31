@@ -7,14 +7,10 @@
  * so that we don't accidentally mark a function dead because it was passed
  * as a callback rather than called directly.
  */
-import _traverse from '@babel/traverse';
+import { traverse } from '../util';
 import * as t from '@babel/types';
 import type { File } from '@babel/types';
 import type { NodePath } from '@babel/traverse';
-
-const traverse = (typeof _traverse === 'function'
-  ? _traverse
-  : (_traverse as any).default) as typeof _traverse;
 
 // fn name → set of names it references
 export type CallGraph = Map<string, Set<string>>;

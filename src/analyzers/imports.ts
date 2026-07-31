@@ -1,8 +1,6 @@
-import _traverse from '@babel/traverse';
+import { traverse } from '../util';
 import type { File } from '@babel/types';
 import type { Finding } from '../types';
-
-const traverse = (typeof _traverse === 'function' ? _traverse : (_traverse as any).default) as typeof _traverse;
 
 export function analyzeUnusedImports(ast: File, filePath: string): Finding[] {
   const findings: Finding[] = [];

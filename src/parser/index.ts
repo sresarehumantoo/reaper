@@ -3,31 +3,38 @@ import type { File } from '@babel/types';
 import fs from 'fs';
 
 /**
- * A parsed source unit. Carries the raw `code` alongside the `ast` so analyzers
- * that need the source representation (escape-density, katakana scans, byte
- * hashing) don't have to re-read the file, and so a multi-analyzer run parses
- * each input exactly once.
+ * Upper bound on a single source file reaper will read into memory. Untrusted
+ * samples can be arbitrarily large (the file-bloat evasion where a payload is
+ * padded to hundreds of MB is real), and both `readFileSync` and the Babel
+ * parse that follows are O(size) in memory. Reading a multi-hundred-MB file
+ * would OOM the analyzer before analysis even starts. Override with
+ * REAPER_MAX_SOURCE_MB for the rare legitimately-huge input.
  */
-export interface SourceUnit {
-  path: string;
-  code: string;
-  ast: File;
+export const MAX_SOURCE_BYTES = (() => {
+  const mb = Number(process.env.REAPER_MAX_SOURCE_MB);
+  return Number.isFinite(mb) && mb > 0 ? mb * 1024 * 1024 : 16 * 1024 * 1024;
+})();
+
+/** Read a source file, refusing inputs above MAX_SOURCE_BYTES. */
+export function readSourceCapped(filePath: string): string {
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch (e: any) {
+    throw new Error(`cannot stat ${filePath}: ${e.message}`);
+  }
+  if (size > MAX_SOURCE_BYTES) {
+    const mb  = (size / 1048576).toFixed(1);
+    const cap = Math.floor(MAX_SOURCE_BYTES / 1048576);
+    throw new Error(
+      `${filePath} is ${mb} MB, over the ${cap} MB cap — carve the real content ` +
+      `out first, or raise REAPER_MAX_SOURCE_MB`);
+  }
+  return fs.readFileSync(filePath, 'utf-8');
 }
 
 export function parseFile(filePath: string): File {
-  const code = fs.readFileSync(filePath, 'utf-8');
-  return parseCode(code, filePath);
-}
-
-/** Read + parse a file once into a reusable {path, code, ast} unit. */
-export function loadSource(filePath: string): SourceUnit {
-  const code = fs.readFileSync(filePath, 'utf-8');
-  return { path: filePath, code, ast: parseCode(code, filePath) };
-}
-
-/** Build a SourceUnit from in-memory source (e.g. a deobfuscated string). */
-export function sourceFromString(code: string, filePath: string): SourceUnit {
-  return { path: filePath, code, ast: parseCode(code, filePath) };
+  return parseCode(readSourceCapped(filePath), filePath);
 }
 
 export function parseCode(code: string, filePath: string): File {

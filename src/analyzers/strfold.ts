@@ -13,19 +13,17 @@
  * with the reconstructed value.
  */
 
-import _traverse from '@babel/traverse';
+import { traverse } from '../util';
 import * as t from '@babel/types';
 import type { File } from '@babel/types';
-
-const traverse = (typeof _traverse === 'function'
-  ? _traverse
-  : (_traverse as any).default) as typeof _traverse;
 
 export interface FoldedString {
   varName: string;
   value:   string;
   line:    number;
   pieces:  number;   // how many string literals were concatenated
+  start:   number | null;   // char offset of the declaration/return (for enclosing-fn attribution)
+  end:     number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +48,12 @@ export function foldStrings(ast: File): FoldedString[] {
         value:   result.value,
         line:    path.node.loc?.start.line ?? 0,
         pieces:  result.pieces,
+        start:   path.node.start ?? null,
+        end:     path.node.end ?? null,
       });
+      // We've fully consumed this initializer — don't let traverse recurse into
+      // it (a long '+' chain is a deep tree that would overflow the visitor).
+      path.skip();
     },
 
     // Also catch: return 'a' + 'b' + ...
@@ -64,27 +67,10 @@ export function foldStrings(ast: File): FoldedString[] {
         value:   result.value,
         line:    path.node.loc?.start.line ?? 0,
         pieces:  result.pieces,
+        start:   path.node.start ?? null,
+        end:     path.node.end ?? null,
       });
-    },
-  });
-
-  return results;
-}
-
-/** Fold strings found inside a specific named function in the AST. */
-export function foldStringsInFunction(ast: File, fnName: string): FoldedString[] {
-  const results: FoldedString[] = [];
-
-  traverse(ast, {
-    FunctionDeclaration(path) {
-      if (path.node.id?.name !== fnName) return;
-      results.push(...foldStrings(path.node as unknown as File));
-    },
-    VariableDeclarator(path) {
-      if (!t.isIdentifier(path.node.id) || path.node.id.name !== fnName) return;
-      const init = path.node.init;
-      if (!init || !t.isFunctionExpression(init)) return;
-      results.push(...foldStrings(init as unknown as File));
+      path.skip();
     },
   });
 
@@ -112,15 +98,27 @@ function evalStringExpr(node: t.Node): EvalResult | null {
     return cooked != null ? { value: cooked, pieces: 1 } : null;
   }
 
-  // Binary + concatenation
+  // Binary + concatenation. Walk the left spine iteratively: a long
+  // 'a'+'b'+…+'z' chain parses into a deeply left-nested BinaryExpression, and
+  // recursing on node.left would overflow the stack on tens of thousands of
+  // terms. (Right operands are typically shallow literals.)
   if (t.isBinaryExpression(node) && node.operator === '+') {
-    const left  = evalStringExpr(node.left);
-    const right = evalStringExpr(node.right);
-    if (left === null || right === null) return null;
-    return {
-      value:  left.value + right.value,
-      pieces: left.pieces + right.pieces,
-    };
+    const rights: t.Node[] = [];
+    let cur: t.Node = node;
+    while (t.isBinaryExpression(cur) && cur.operator === '+') {
+      rights.push(cur.right);
+      cur = cur.left as t.Node;
+    }
+    let acc = evalStringExpr(cur);          // leftmost operand
+    if (acc === null) return null;
+    let value = acc.value, pieces = acc.pieces;
+    for (let i = rights.length - 1; i >= 0; i--) {
+      const r = evalStringExpr(rights[i]);
+      if (r === null) return null;
+      value  += r.value;
+      pieces += r.pieces;
+    }
+    return { value, pieces };
   }
 
   // Sequence expression: ('a', 'b', 'c') → last value

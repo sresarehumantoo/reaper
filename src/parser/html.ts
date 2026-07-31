@@ -18,8 +18,8 @@
  * raw JS" if extraction yields nothing.
  */
 
-import fs from 'fs';
 import path from 'path';
+import { readSourceCapped } from './index';
 
 export interface ExtractedScript {
   /** Virtual file path: "<original.html>#script-N" or "#data-uri-N" */
@@ -37,7 +37,7 @@ const SRC_RE    = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
 const TYPE_RE   = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
 
 export function extractScriptsFromHtml(filePath: string): ExtractedScript[] {
-  const raw  = fs.readFileSync(filePath, 'utf-8');
+  const raw  = readSourceCapped(filePath);
   // Strip HTML comments so literal <script…> inside a comment doesn't fool
   // the scanner. Replace each comment with a same-length run of spaces so
   // downstream line numbers stay accurate.
@@ -48,11 +48,21 @@ export function extractScriptsFromHtml(filePath: string): ExtractedScript[] {
   let inlineIdx = 0;
   let dataIdx   = 0;
 
+  // Track the line number with a forward-only cursor instead of re-slicing and
+  // splitting the whole prefix on every <script> tag (which is O(n²) on files
+  // with many tags). matchAll yields matches in increasing index order.
+  let scanPos  = 0;
+  let lineBase = 1;
+
   for (const m of html.matchAll(SCRIPT_RE)) {
     const attrs   = m[1] ?? '';
     const body    = m[2] ?? '';
     const tagPos  = m.index ?? 0;
-    const line    = html.slice(0, tagPos).split('\n').length;
+    for (let i = scanPos; i < tagPos; i++) {
+      if (html.charCodeAt(i) === 10) lineBase++;
+    }
+    scanPos = tagPos;
+    const line = lineBase;
 
     const srcMatch = attrs.match(SRC_RE);
     const src      = srcMatch ? (srcMatch[1] ?? srcMatch[2] ?? srcMatch[3] ?? '') : '';

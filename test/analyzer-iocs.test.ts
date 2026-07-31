@@ -117,3 +117,29 @@ test('iocs: extracts long base64 blob as base64 IOC', () => {
   const i = iocsFor(`const x = "${blob}"`);
   assert.ok(i.some(x => x.type === 'base64'));
 });
+
+test('iocs: email regex does not backtrack catastrophically', () => {
+  // Pathological for the old /[a-z0-9.-]+\.[a-z]{2,24}/ domain part.
+  const evil = 'x@' + 'a.'.repeat(50000) + '!';
+  const start = Date.now();
+  iocsFor(`const s = ${JSON.stringify(evil)};`);
+  assert.ok(Date.now() - start < 1000, 'email scan must stay near-linear');
+});
+
+test('iocs: still extracts a normal email', () => {
+  const i = iocsFor("const e = 'attacker@evil-domain.co.uk';");
+  assert.ok(i.some(x => x.type === 'email' && x.value === 'attacker@evil-domain.co.uk'));
+});
+
+test('iocs: oversized base64 blob is recorded but not decoded/recursed', () => {
+  // A >1 MiB base64 blob that decodes to a URL. It should be recorded as a
+  // base64 IOC, but the nested URL must NOT be surfaced (decode is capped).
+  const inner = Buffer.from('http://nested-c2.example/x').toString('base64');
+  const blob  = 'A'.repeat(1_100_000) + inner;   // > MAX_DECODE_BASE64_LEN
+  const start = Date.now();
+  const i = iocsFor(`const b = '${blob}';`);
+  assert.ok(Date.now() - start < 2000, 'must not decode+rescan a giant blob');
+  assert.ok(i.some(x => x.type === 'base64'), 'blob still recorded');
+  assert.ok(!i.some(x => x.type === 'url' && x.value.includes('nested-c2')),
+    'nested URL must not be decoded out of an oversized blob');
+});

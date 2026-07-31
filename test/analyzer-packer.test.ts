@@ -54,3 +54,23 @@ test('packer: handles split("|") key array form', () => {
   assert.ok(results[0].unpacked, 'should unpack with split-form keys');
   assert.match(results[0].unpacked!, /a\(b\+c\)/);
 });
+
+test('packer: clamps an implausible count so it cannot OOM/hang', () => {
+  // Hostile "packer": count = 1e9 with an empty key array. Without the clamp,
+  // staticUnpack would loop a billion times building a multi-GB lookup object.
+  const src = `eval((function(p,a,c,k,e,d){return p})('x', 62, 1000000000, []))`;
+  const ast = parseCode(src, 'bomb.js');
+  const start = Date.now();
+  const results = detectPacker(ast);
+  assert.ok(Date.now() - start < 2000, 'must not spin on a huge count');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].detected, true);
+  assert.match(results[0].error ?? '', /clamped/);
+  assert.equal(results[0].unpacked, 'x');
+});
+
+test('packer: rejects out-of-range base', () => {
+  const src = `eval((function(p,a,c,k,e,d){return p})('x', 999, 3, []))`;
+  const ast = parseCode(src, 'badbase.js');
+  assert.equal(detectPacker(ast).length, 0);
+});

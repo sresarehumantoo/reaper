@@ -12,7 +12,7 @@
  * which are alive, estimated code reduction, and any reconstructed strings.
  */
 import fs from 'fs';
-import { parseCode } from '../parser';
+import { parseCode, readSourceCapped } from '../parser';
 import { buildCallGraph } from '../graph/callgraph';
 import { computeReachability, detectEntryPoints } from '../graph/reachability';
 import { captureEvalScope } from './evalscope';
@@ -60,7 +60,7 @@ export function analyzeReachability(
   filePath:     string,
   entryPoints?: string[],
 ): ReachabilityReport {
-  const source     = fs.readFileSync(filePath, 'utf-8');
+  const source     = readSourceCapped(filePath);
   const totalLines = source.split('\n').length;
   const totalChars = source.length;
 
@@ -141,13 +141,19 @@ export function analyzeReachability(
   const { reachable, dead, missingRoots } = computeReachability(mergedGraph, roots);
 
   // ── Step 6: string folding inside dead function bodies ───────────────────
-  // Reuses the per-layer ASTs we already parsed in Step 3.
+  // Fold over the static outer AST *and* every eval layer — a dead function in
+  // a plain (non-packed) obfuscated file has its constants reconstructed too,
+  // not only functions recovered from eval layers.
   const foldedByFn = new Map<string, FoldedString[]>();
 
-  for (const [, { ast: layerAst }] of layerAsts) {
+  const foldTargets: File[] = [];
+  if (outerAst) foldTargets.push(outerAst);
+  for (const [, { ast: layerAst }] of layerAsts) foldTargets.push(layerAst);
+
+  for (const target of foldTargets) {
     try {
-      const folded = foldStrings(layerAst);
-      attributeFoldedStrings(layerAst, folded, dead, foldedByFn);
+      const folded = foldStrings(target);
+      attributeFoldedStrings(target, folded, dead, foldedByFn);
     } catch { /* skip */ }
   }
 
@@ -201,13 +207,9 @@ export function analyzeReachability(
 // ---------------------------------------------------------------------------
 // Attribute folded strings to their enclosing dead function
 // ---------------------------------------------------------------------------
-import _traverse from '@babel/traverse';
+import { traverse } from '../util';
 import * as t from '@babel/types';
 import type { File } from '@babel/types';
-
-const traverse = (typeof _traverse === 'function'
-  ? _traverse
-  : (_traverse as any).default) as typeof _traverse;
 
 function attributeFoldedStrings(
   ast:       File,
@@ -242,7 +244,11 @@ function collectFolded(
   out:    Map<string, FoldedString[]>,
 ): void {
   if (start == null || end == null) return;
-  const matches = folded.filter(f => f.line >= 0); // all of them — lines are 1-based in minified
+  // Attribute only the folds whose source range falls inside this function's
+  // [start, end). Filtering on `f.line >= 0` (always true) previously credited
+  // every dead function with every fold in the layer.
+  const matches = folded.filter(f =>
+    f.start != null && f.end != null && f.start >= start && f.end <= end);
   if (matches.length === 0) return;
   if (!out.has(fnName)) out.set(fnName, []);
   out.get(fnName)!.push(...matches);

@@ -45,7 +45,7 @@ build: $(NODE_STAMP)  ## Compile TypeScript to dist/
 	@chmod +x dist/cli.js
 	@# Copy non-TS runtime files (e.g. the evalscope worker) into dist/.
 	@mkdir -p dist/analyzers
-	@cp src/analyzers/evalscope-worker.cjs dist/analyzers/evalscope-worker.cjs
+	@cp src/analyzers/*.cjs dist/analyzers/
 
 typecheck: $(NODE_STAMP)  ## Type-check without emitting (CI-friendly)
 	$(NPX) tsc --noEmit

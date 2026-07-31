@@ -31,9 +31,9 @@
  * `scripts/analyze.sh --dynamic-only`. The child-process boundary here
  * is a meaningful step up from in-process vm but is NOT equivalent.
  */
-import { execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { runIsolated } from './isolate';
 
 export interface EvalLayer {
   index:  number;
@@ -68,39 +68,17 @@ export function captureEvalScope(filePath: string): EvalScopeResult {
     };
   }
 
-  let raw: Buffer;
-  try {
-    raw = execFileSync(
-      process.execPath,
-      [
-        '--frozen-intrinsics',
-        '--no-warnings',
-        '--max-old-space-size=128',
-        WORKER_PATH,
-        filePath,
-      ],
-      {
-        timeout:   CHILD_TIMEOUT_MS,
-        maxBuffer: MAX_OUTPUT_BYTES,
-        stdio:     ['ignore', 'pipe', 'pipe'],
-        // Strip inherited environment. PATH alone is enough for the child
-        // to find shared libs; everything else (creds, tokens, NODE_OPTIONS,
-        // FORCE_COLOR injections, etc.) is removed.
-        env: {
-          PATH:         process.env.PATH ?? '/usr/bin:/bin',
-          NODE_OPTIONS: '',
-        },
-      },
-    );
-  } catch (e: any) {
-    const msg = e?.code === 'ETIMEDOUT'
-      ? `worker timed out after ${CHILD_TIMEOUT_MS}ms`
-      : `worker failed: ${e?.message ?? String(e)}`;
-    return { layers: [], globals: [], error: msg };
+  const run = runIsolated(WORKER_PATH, {
+    argv:           [filePath],
+    timeoutMs:      CHILD_TIMEOUT_MS,
+    maxOutputBytes: MAX_OUTPUT_BYTES,
+  });
+  if (run.error || !run.stdout) {
+    return { layers: [], globals: [], error: run.error ?? 'worker produced no output' };
   }
 
   try {
-    const parsed = JSON.parse(raw.toString('utf-8')) as EvalScopeResult;
+    const parsed = JSON.parse(run.stdout.toString('utf-8')) as EvalScopeResult;
     return parsed;
   } catch (e: any) {
     return {

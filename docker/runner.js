@@ -60,13 +60,19 @@ Module._load = function reaperLoad(request, parent, isMain) {
     log('require', request);
   }
 
-  if (BLOCKED_MODULES.has(request)) {
+  // Normalise the `node:` prefix so require('node:child_process') can't slip
+  // past the bare-name checks below.
+  const name = typeof request === 'string' && request.startsWith('node:')
+    ? request.slice(5)
+    : request;
+
+  if (BLOCKED_MODULES.has(name)) {
     log('blocked', `require('${request}') — module blocked in sandbox`);
     // Return a proxy that throws on any property access
     return new Proxy({}, {
       get(_t, prop) {
         return function () {
-          throw new Error(`[reaper sandbox] '${request}.${String(prop)}' is disabled`);
+          throw new Error(`[reaper sandbox] '${name}.${String(prop)}' is disabled`);
         };
       },
     });
@@ -75,13 +81,13 @@ Module._load = function reaperLoad(request, parent, isMain) {
   const mod = origLoad.apply(this, arguments);
 
   // Wrap net/http/https to log connection attempts (will fail — network=none)
-  if (request === 'net' || request === 'http' || request === 'https' || request === 'dgram') {
-    return wrapNetworkModule(request, mod);
+  if (name === 'net' || name === 'http' || name === 'https' || name === 'dgram') {
+    return wrapNetworkModule(name, mod);
   }
 
   // Wrap fs to log file write/delete attempts
-  if (request === 'fs' || request === 'fs/promises') {
-    return wrapFsModule(request, mod);
+  if (name === 'fs' || name === 'fs/promises') {
+    return wrapFsModule(name, mod);
   }
 
   return mod;

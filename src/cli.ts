@@ -18,7 +18,7 @@ import { printTriage, formatTriageJson } from './reporter/triage';
 import { extractIocs } from './analyzers/iocs';
 import { printIocs, formatIocsJson } from './reporter/iocs';
 import { formatSarif } from './reporter/sarif';
-import { parseFile } from './parser';
+import { parseFile, readSourceCapped } from './parser';
 import type { Finding, ReaperResult, AnalyzerOptions } from './types';
 import type { IocReport } from './reporter/iocs';
 
@@ -125,7 +125,13 @@ program
 
       let detected = 0;
       for (const ef of files) {
-        const src  = fs.readFileSync(ef.path, 'utf-8');
+        let src: string;
+        try {
+          src = readSourceCapped(ef.path);
+        } catch (err: any) {
+          console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
+          continue;
+        }
         const info = detectAndRewriteStringArray(src, ef.path);
 
         // Output name: derived from origin so HTML-extracted scripts get a
@@ -175,7 +181,7 @@ program
       const reports = [];
       for (const ef of files) {
         try {
-          const src = fs.readFileSync(ef.path, 'utf-8');
+          const src = readSourceCapped(ef.path);
           reports.push(triageSource(src, ef.path, displayPath(cwd, ef), opts.fold !== false));
         } catch (err: any) {
           console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
@@ -298,7 +304,7 @@ program
     }
 
     if (opts.format === 'json' || opts.format === 'sarif') {
-      const output = opts.format === 'sarif' ? formatSarif(result, cwd) : formatJson(result);
+      const output = opts.format === 'sarif' ? formatSarif(result, cwd, packageVersion()) : formatJson(result);
       if (opts.output) {
         fs.writeFileSync(opts.output, output, 'utf-8');
       } else {

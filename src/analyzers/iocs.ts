@@ -56,11 +56,21 @@ export interface Ioc {
 
 // Non-global variants are used for membership tests; global ones for matchAll.
 const URL_RE        = /\bhttps?:\/\/[^\s"'<>`)]+/gi;
-const DOMAIN_RE     = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,24})\b/gi;
+// Label repetition is bounded ({1,10}) so the engine can't match a huge run of
+// single-char labels and then backtrack it at every start position — the
+// unbounded `(?:label\.)+` form is O(n²) on inputs like `a.`×N (real domains
+// never approach 10 labels, and parseDomain reduces to the registrable domain
+// anyway).
+const DOMAIN_RE     = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,10}(?:[a-z]{2,24})\b/gi;
 const IPV4_RE       = /\b(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)){3}\b/g;
 const IPV6_RE       = /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}(?:::)?(?:[0-9a-fA-F]{1,4})?\b/g;
 const EVM_ADDR_RE   = /\b0x[0-9a-fA-F]{40}\b/g;
-const EMAIL_RE      = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}\b/gi;
+// Every quantifier is bounded (RFC-realistic caps) so the engine can't scan an
+// unbounded run at each start position: the old unbounded local part
+// `[a-z0-9._%+-]+` re-scanned the whole no-`@` tail at every offset (O(n²) on
+// `x@` + `a.`×N + `!`), and putting `.` inside a `+` in the domain overlapped
+// the required `\.` + TLD. Dot-separated labels + fixed maxima keep it linear.
+const EMAIL_RE      = /\b[a-z0-9._%+-]{1,64}@[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,10}\.[a-z]{2,24}\b/gi;
 const BASE64_RE     = /\b[A-Za-z0-9+/]{80,}={0,2}/g;
 const TELEGRAM_RE   = /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g;
 const DISCORD_WH_RE = /\bhttps?:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/[A-Za-z0-9_-]+/gi;
@@ -92,6 +102,13 @@ const DOMAIN_DENYLIST = new Set([
 ]);
 
 const MAX_DECODE_DEPTH = 2;
+
+// Cap on a base64 blob we're willing to decode-and-rescan. The blob is still
+// recorded as a `base64` IOC regardless; this only bounds the decode +
+// recursive re-scan so a multi-MB blob can't blow up memory/CPU (decode →
+// re-scan → decode again). 1 MiB of base64 → ~768 KiB of text, plenty for a
+// nested URL/key/config; anything larger is almost always padding or binary.
+const MAX_DECODE_BASE64_LEN = 1 << 20;
 
 export function extractIocs(ast: File, filePath: string): Ioc[] {
   const found = new Map<string, Ioc>(); // key = type|value
@@ -227,6 +244,7 @@ export function extractIocs(ast: File, filePath: string): Ioc[] {
 // Decode a base64 blob if it yields mostly-printable text (i.e. a nested
 // payload/config worth re-scanning, not raw binary).
 function tryDecodeBase64(blob: string): string | null {
+  if (blob.length > MAX_DECODE_BASE64_LEN) return null;   // too big to decode+rescan safely
   if (blob.length % 4 !== 0 && !blob.endsWith('=')) {
     // tolerate unpadded — Buffer handles it, but skip obvious non-multiples
   }

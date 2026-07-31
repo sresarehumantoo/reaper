@@ -20,28 +20,35 @@
  *
  * Strategy (pure-data: returns rewritten source, never mutates the input):
  *   1. Locate arrayFn, root decoder, the IIFE shuffle (anywhere in the AST).
- *   2. Boot a sandboxed vm with array + decoder + IIFE so the rotation settles.
- *   3. Discover every wrapper fn (any depth, any number of passes) AND every
- *      identifier alias `var X = decoder` (transitively).
- *   4. For each wrapper, inline enclosing-scope const objects/numbers/strings
- *      into a clone of its body, then emit into the vm so it's callable.
- *   5. Walk the AST; for each wrapper or alias call whose args can be
- *      const-evaluated, replace the call with the literal string returned.
- *   6. Strip the dead obfuscator scaffolding from the output AST when it's
- *      at program-body level (nested scaffolding is left in place — safer).
+ *   2. Discover every wrapper fn (any depth, any number of passes) AND every
+ *      identifier alias `var X = decoder` (transitively). All pure-AST.
+ *   3. For each wrapper, inline enclosing-scope const objects/numbers/strings
+ *      into a clone of its body so it is self-contained.
+ *   4. Collect every wrapper/alias call whose args can be const-evaluated.
+ *   5. Hand the boot code + wrappers + collected calls to an ISOLATED child
+ *      process (see isolate.ts / stringarray-worker.cjs) which boots the vm and
+ *      returns the decoded string for each call. Nothing executes in-process.
+ *   6. Substitute each resolved call with its literal string.
+ *   7. Strip the dead obfuscator scaffolding from the output AST when it's at
+ *      program-body level (nested scaffolding is left in place — safer).
+ *
+ * Executing sample code in-process (Node's `vm`) is unsafe: `vm` is not a
+ * security boundary, its timeout only covers synchronous script, and it shares
+ * reaper's heap (so a sample can OOM or hang the analyzer). The child-process
+ * boundary in step 5 bounds all of that to a disposable process.
  */
 
-import vm from 'vm';
+import path from 'path';
+import fs from 'fs';
 import { parseCode } from '../parser';
-import _traverse from '@babel/traverse';
-import _generate from '@babel/generator';
+import { traverse, generate } from '../util';
 import * as t from '@babel/types';
 import type { File, Node } from '@babel/types';
+import { runIsolated } from './isolate';
 
-const traverse = (typeof _traverse === 'function' ? _traverse : (_traverse as any).default) as typeof _traverse;
-const generate = (typeof (_generate as any) === 'function' ? (_generate as any) : (_generate as any).default) as typeof _generate;
-
-const VM_TIMEOUT_MS = 5000;
+// In dev (tsx) __dirname is src/analyzers/; in prod it's dist/analyzers/.
+// `npm run build` copies the .cjs worker next to the compiled .js.
+const WORKER_PATH = path.join(__dirname, 'stringarray-worker.cjs');
 
 export interface StringArrayInfo {
   detected:       boolean;
@@ -54,6 +61,8 @@ export interface StringArrayInfo {
   rewritten:      string | null;   // full rewritten source, or null if not detected
   error:          string | null;
 }
+
+interface DecodeCall { id: number; target: string; args: (number | string)[] }
 
 export function detectAndRewriteStringArray(source: string, filePath: string): StringArrayInfo {
   const info: StringArrayInfo = {
@@ -89,35 +98,19 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
   // ── 2. Locate IIFE shuffle (anywhere in the AST) ──────────────────────────
   const iifeCall = findIifeShuffleCall(ast, arrayFn);
 
-  // ── 3. Boot the VM with arrayFn + decoder + IIFE ─────────────────────────
-  // Synthesise a fresh program: clone the discovered nodes (so we don't mutate
-  // the source AST) and emit them in arrayFn → decoder → rotator order.
-  const ctx = vm.createContext(Object.create(null));
+  // ── 3. Build the boot program (arrayFn → decoder → rotator) ───────────────
+  // Clone the discovered nodes so we never mutate the source AST.
   const bootBody: t.Statement[] = [
     t.cloneNode(arrayDecl, true),
     t.cloneNode(decoderDecl, true),
   ];
   if (iifeCall) bootBody.push(t.expressionStatement(t.cloneNode(iifeCall, true)));
-  try {
-    vm.runInContext(generate(t.program(bootBody)).code, ctx, { timeout: VM_TIMEOUT_MS });
-  } catch (e: any) {
-    info.error = `vm boot failed: ${e.message}`;
-    return info;
-  }
-
-  // Decoder must be callable now.
-  if (typeof (ctx as any)[decoderFn] !== 'function') {
-    info.error = 'decoder not callable after boot';
-    return info;
-  }
-
-  info.detected = true;
+  const bootCode = generate(t.program(bootBody)).code;
 
   // ── 4a. Discover identifier aliases of the decoder ────────────────────────
   // Pattern: `var X = decoder` (or `var Y = X` transitively). These are not
   // wrapper functions — they're aliased references the obfuscator scatters
-  // through every function scope to defeat naive name-based detection.
-  // For substitution purposes, a call on an alias is equivalent to a call on
+  // through every function scope. A call on an alias is equivalent to a call on
   // the root decoder with the same args.
   const aliasToRoot = new Map<string, string>();   // alias name → root decoder name
   aliasToRoot.set(decoderFn, decoderFn);
@@ -135,12 +128,11 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
     });
     if (added === 0) break;
   }
-  info.aliases = [...aliasToRoot.keys()].filter(n => n !== decoderFn);
+  const aliasesLocal = [...aliasToRoot.keys()].filter(n => n !== decoderFn);
 
   // ── 4b. Discover wrapper functions at any depth ───────────────────────────
   // A wrapper is `function w(a,b){ return <decoder-or-alias>(transform(a,b)); }`
-  // — it transforms the args before delegating. Track them separately from
-  // aliases because they need to be materialised into the vm individually.
+  // — it transforms the args before delegating.
   const knownWrappers = new Set<string>([decoderFn]);
   const wrapperNodes  = new Map<string, t.Function>();
 
@@ -152,7 +144,6 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
         const name = getFnName(node, p.parent);
         if (!name || knownWrappers.has(name) || name === arrayFn) return;
         if (aliasToRoot.has(name)) return;        // it's an alias, not a wrapper
-        // A wrapper resolves through any known decoder/alias/wrapper.
         const resolvable = new Set<string>([...knownWrappers, ...aliasToRoot.keys()]);
         if (!isWrapperShape(node, resolvable)) return;
         knownWrappers.add(name);
@@ -162,41 +153,36 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
     });
     if (added === 0) break;
   }
+  const wrappersLocal = [...wrapperNodes.keys()];
 
-  info.wrappers = [...wrapperNodes.keys()];
-
-  // ── 5. Materialise each wrapper into the vm (with scope-env inlined) ──────
+  // ── 5a. Materialise wrapper declarations (with scope-env inlined) ─────────
+  // One O(n) pass to map every function name → its NodePath, so we don't
+  // re-traverse the whole AST once per wrapper.
+  const fnPathByName = collectFnPaths(ast);
+  const wrapperCodes: string[] = [];
   for (const [name, node] of wrapperNodes) {
-    const fnPath = findFnPathByName(ast, name);
+    const fnPath = fnPathByName.get(name) ?? null;
     const env    = fnPath ? collectConstEnv(fnPath) : {};
     const cloned = t.cloneNode(node, true) as t.Function;
     inlineEnvIntoFn(cloned, env);
 
-    let declCode: string;
     if (t.isFunctionDeclaration(cloned)) {
-      declCode = generate(cloned).code;
+      wrapperCodes.push(generate(cloned).code);
     } else if (t.isFunctionExpression(cloned) || t.isArrowFunctionExpression(cloned)) {
       const wrapDecl = t.variableDeclaration('var', [
         t.variableDeclarator(t.identifier(name), cloned),
       ]);
-      declCode = generate(wrapDecl).code;
-    } else continue;
-
-    try {
-      vm.runInContext(declCode, ctx, { timeout: VM_TIMEOUT_MS });
-    } catch (e: any) {
-      // One wrapper failing shouldn't kill the whole pass — continue.
-      continue;
+      wrapperCodes.push(generate(wrapDecl).code);
     }
   }
 
-  // ── 6. Walk the AST, replace wrapper/alias calls with literal strings ────
-  // Two routes:
-  //   (i)  callee is an alias of the decoder → call ctx[decoder](...args).
-  //   (ii) callee is a wrapper fn we materialised → call ctx[wrapper](...args).
-  // The root decoder is skipped at its declared name (the substitution would
-  // be redundant — direct decoder calls are vanishingly rare and the boot
-  // step already left it defined for alias resolution).
+  // ── 5b. Collect every resolvable wrapper/alias call ───────────────────────
+  // The root decoder is skipped at its declared name (direct decoder calls are
+  // vanishingly rare and would be redundant). `attempted` counts every call
+  // site whose callee matched, matching the historical metric.
+  const calls: DecodeCall[]      = [];
+  const idByNode = new Map<Node, number>();
+  let attempted = 0;
   traverse(ast, {
     CallExpression(p) {
       const callee = p.node.callee;
@@ -204,22 +190,59 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
       const name = callee.name;
 
       let target: string | null = null;
-      if (aliasToRoot.has(name) && name !== decoderFn) {
-        target = decoderFn;
-      } else if (knownWrappers.has(name) && name !== decoderFn) {
-        target = name;
-      } else {
-        return;
-      }
+      if (aliasToRoot.has(name) && name !== decoderFn) target = decoderFn;
+      else if (knownWrappers.has(name) && name !== decoderFn) target = name;
+      else return;
 
-      info.attempted++;
+      attempted++;
       const env  = collectConstEnv(p);
       const args = p.node.arguments.map(a => evalConstNode(a as Node, env));
       if (args.some(a => a === undefined)) return;
-      let result: unknown;
-      try { result = (ctx as any)[target](...args as any[]); } catch { return; }
-      if (typeof result === 'string') {
-        p.replaceWith(t.stringLiteral(result));
+      const id = calls.length;
+      idByNode.set(p.node, id);
+      calls.push({ id, target, args: args as (number | string)[] });
+    },
+  });
+
+  // ── 5c. Execute the boot + decode calls in an isolated child process ──────
+  if (!fs.existsSync(WORKER_PATH)) {
+    info.error = `stringarray worker missing at ${WORKER_PATH} (build did not copy .cjs?)`;
+    return info;
+  }
+  const workerInput = JSON.stringify({ boot: bootCode, decoder: decoderFn, wrappers: wrapperCodes, calls });
+  const run = runIsolated(WORKER_PATH, { input: workerInput });
+  if (run.error || !run.stdout) {
+    info.error = run.error ?? 'worker produced no output';
+    return info;
+  }
+  let workerOut: { ok: boolean; error: string | null; results: { id: number; value: string | null }[] };
+  try {
+    workerOut = JSON.parse(run.stdout.toString('utf-8'));
+  } catch (e: any) {
+    info.error = `worker produced unparseable output: ${e?.message ?? String(e)}`;
+    return info;
+  }
+  if (!workerOut.ok) {
+    info.error = workerOut.error;
+    return info;
+  }
+
+  // Boot + decoder confirmed callable in the child.
+  info.detected  = true;
+  info.aliases   = aliasesLocal;
+  info.wrappers  = wrappersLocal;
+  info.attempted = attempted;
+
+  // ── 6. Substitute each resolved call with its literal string ──────────────
+  const valueById = new Map<number, string | null>();
+  for (const r of workerOut.results) valueById.set(r.id, r.value);
+  traverse(ast, {
+    CallExpression(p) {
+      const id = idByNode.get(p.node);
+      if (id === undefined) return;
+      const v = valueById.get(id);
+      if (typeof v === 'string') {
+        p.replaceWith(t.stringLiteral(v));
         info.substitutions++;
       }
     },
@@ -227,10 +250,7 @@ export function detectAndRewriteStringArray(source: string, filePath: string): S
 
   // ── 7. Strip dead obfuscator scaffolding ──────────────────────────────────
   // Top-level scaffolding only — when the obfuscator wraps everything in an
-  // outer IIFE the scaffold lives inside it; in that case we leave it alone
-  // (the rewritten strings make the file readable without removing structure
-  // that other analyses may want to inspect). The IIFE-shuffle ExpressionStatement
-  // at program-body level is removed when found.
+  // outer IIFE the scaffold lives inside it; in that case we leave it alone.
   const iifeStmtAtTop = iifeCall
     ? ast.program.body.find(n =>
         t.isExpressionStatement(n) && n.expression === iifeCall
@@ -335,9 +355,6 @@ function decoderBodyCallsArrayFn(fn: t.FunctionDeclaration, arrayFn: string): bo
   }
 
   // Shape (b): body somewhere calls arrayFn() and indexes into the result.
-  // Require an explicit `var X = arrayFn()` (or const/let) and a return that
-  // either returns an indexed expression or returns an identifier that was
-  // assigned an indexed expression.
   let callsArr = false, indexesResult = false;
   for (const stmt of fn.body.body) {
     if (t.isVariableDeclaration(stmt)) {
@@ -400,15 +417,16 @@ function isWrapperShape(node: t.Function, knownDecoders: Set<string>): boolean {
   return t.isIdentifier(callee) && knownDecoders.has(callee.name);
 }
 
-function findFnPathByName(ast: File, name: string): any /* NodePath */ | null {
-  let found: any = null;
+/** One traversal → map of every named function → its NodePath. */
+function collectFnPaths(ast: File): Map<string, any /* NodePath */> {
+  const paths = new Map<string, any>();
   traverse(ast, {
     Function(p) {
       const n = getFnName(p.node, p.parent);
-      if (n === name) found = p;
+      if (n) paths.set(n, p);        // last declaration wins (matches prior findFnPathByName)
     },
   });
-  return found;
+  return paths;
 }
 
 // ---------------------------------------------------------------------------
