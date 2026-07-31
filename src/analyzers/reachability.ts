@@ -12,7 +12,7 @@
  * which are alive, estimated code reduction, and any reconstructed strings.
  */
 import fs from 'fs';
-import { parseCode } from '../parser';
+import { parseCode, readSourceCapped } from '../parser';
 import { buildCallGraph } from '../graph/callgraph';
 import { computeReachability, detectEntryPoints } from '../graph/reachability';
 import { captureEvalScope } from './evalscope';
@@ -60,7 +60,7 @@ export function analyzeReachability(
   filePath:     string,
   entryPoints?: string[],
 ): ReachabilityReport {
-  const source     = fs.readFileSync(filePath, 'utf-8');
+  const source     = readSourceCapped(filePath);
   const totalLines = source.split('\n').length;
   const totalChars = source.length;
 

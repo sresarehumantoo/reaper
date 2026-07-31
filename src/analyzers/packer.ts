@@ -73,6 +73,16 @@ export function detectPacker(ast: File): PackerInfo[] {
 
       if (keys === null) return;
 
+      // `base` and `count` are attacker-controlled numeric literals; `count`
+      // drives staticUnpack's build loop. A hostile sample can set count to 1e9
+      // with an empty key array to OOM/hang the analyzer. Real p,a,c,k,e,d
+      // always has count === keys.length, and any index >= keys.length maps a
+      // token to its own base-encoding (a no-op in the final replace), so
+      // clamping to the dictionary size is loss-free while defusing the bomb.
+      if (base < 2 || base > 62) return;
+      const maxCount = keys.length > 0 ? keys.length : packed.length;
+      const safeCount = Number.isFinite(count) && count > 0 ? Math.min(count, maxCount) : 0;
+
       const info: PackerInfo = {
         detected: true,
         base,
@@ -80,11 +90,11 @@ export function detectPacker(ast: File): PackerInfo[] {
         keys,
         packed,
         unpacked: null,
-        error:    null,
+        error:    count !== safeCount ? `count ${count} clamped to ${safeCount}` : null,
       };
 
       try {
-        info.unpacked = staticUnpack(packed, base, count, keys);
+        info.unpacked = staticUnpack(packed, base, safeCount, keys);
       } catch (e: any) {
         info.error = e.message;
       }

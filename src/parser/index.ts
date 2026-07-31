@@ -14,14 +14,44 @@ export interface SourceUnit {
   ast: File;
 }
 
+/**
+ * Upper bound on a single source file reaper will read into memory. Untrusted
+ * samples can be arbitrarily large (the file-bloat evasion where a payload is
+ * padded to hundreds of MB is real), and both `readFileSync` and the Babel
+ * parse that follows are O(size) in memory. Reading a multi-hundred-MB file
+ * would OOM the analyzer before analysis even starts. Override with
+ * REAPER_MAX_SOURCE_MB for the rare legitimately-huge input.
+ */
+export const MAX_SOURCE_BYTES = (() => {
+  const mb = Number(process.env.REAPER_MAX_SOURCE_MB);
+  return Number.isFinite(mb) && mb > 0 ? mb * 1024 * 1024 : 16 * 1024 * 1024;
+})();
+
+/** Read a source file, refusing inputs above MAX_SOURCE_BYTES. */
+export function readSourceCapped(filePath: string): string {
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch (e: any) {
+    throw new Error(`cannot stat ${filePath}: ${e.message}`);
+  }
+  if (size > MAX_SOURCE_BYTES) {
+    const mb  = (size / 1048576).toFixed(1);
+    const cap = Math.floor(MAX_SOURCE_BYTES / 1048576);
+    throw new Error(
+      `${filePath} is ${mb} MB, over the ${cap} MB cap — carve the real content ` +
+      `out first, or raise REAPER_MAX_SOURCE_MB`);
+  }
+  return fs.readFileSync(filePath, 'utf-8');
+}
+
 export function parseFile(filePath: string): File {
-  const code = fs.readFileSync(filePath, 'utf-8');
-  return parseCode(code, filePath);
+  return parseCode(readSourceCapped(filePath), filePath);
 }
 
 /** Read + parse a file once into a reusable {path, code, ast} unit. */
 export function loadSource(filePath: string): SourceUnit {
-  const code = fs.readFileSync(filePath, 'utf-8');
+  const code = readSourceCapped(filePath);
   return { path: filePath, code, ast: parseCode(code, filePath) };
 }
 
