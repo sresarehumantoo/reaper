@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-27
+
+### Added
+
+- **`examples/clickfix-xloader/`** — new reverse-engineering walkthrough of an in-the-wild **ClearFake / ClickFix** campaign that stages its C2 on **Polygon mainnet** (EtherHiding) and ends in a **XLoader / Formbook** infostealer. Captured 2026-07-28 from the compromised WordPress site `cocobproductions.com`. Ships every JavaScript and PowerShell stage as inert data — the injected `atob`+XOR-12+`new Function` loader and its plaintext decode, the `eth_call` reply that yields the C2 hostname (contract `0xB6bC9e1D…C1f2`, selector `0xb68d1809` → `enter-code-cdn.info`), the 44 KB fake-Cloudflare "verify you are human" overlay (`atob`+XOR-177) with its AES-GCM victim beacon and the clipboard PowerShell lure, and the three-layer PowerShell chain (XOR-42 downloader → XOR-77/base64 stager → 7-Zip dropper). The terminal `xloader.exe` is recorded as hashes + PE metadata only (not committed): a packed PE32+ bloated to 819 MB (~250 KB real) to defeat AV/sandbox size caps. Includes step-by-step `README.md`, analysis `REPORT.md`, and a verifying `SHA256SUMS`. A good contrast to `examples/etherhiding/` (Polygon vs BSC testnet, PowerShell vs rundll32/WebDAV, native payload retrieved vs not) and the first non-BSC use of `fetch-evm-payload.mjs`.
+- **`make verify-examples` now checks every example** that ships a `SHA256SUMS` (previously only `examples/etherhiding/`), so `clickfix-xloader` and `propellerads-sfp` artifacts are integrity-verified too.
+
 ### Changed
 
 - **Shared reporter/AST helpers in `src/util.ts`** remove several copies of the same logic: `renderIocValue` + `DEFANGABLE_IOC_TYPES` (the defang gate was duplicated in the IOC and triage reporters), `locLabel` (the `line:column` format was inlined in the console, IOC, and triage reporters), and `forEachNamedFunction` (the "declaration + `var f = fn/arrow`" walk was duplicated between the function inventory and the call-graph builder — now one skeleton, each caller keeps its own per-function work).
@@ -14,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Removed dead exports:** `loadSource`, `sourceFromString`, `SourceUnit` (parser), `foldStringsInFunction` (strfold), `printableRatio` (util) — none had callers.
 - Docker sandbox shim (`docker/runner.js`) normalises the `node:` module prefix, so `require('node:child_process')` is blocked the same as the bare name; `fetch-evm-payload.mjs` now rejects the link-local/cloud-metadata range (169.254.0.0/16) as its comment always claimed, while still allowing loopback/private RPC hosts for local dev nodes.
 - `strfold` folds `+` chains via an iterative left-spine walk and `path.skip()`s consumed initializers (avoids re-descending folded subtrees; pathologically deep inputs remain bounded by Babel and are caught by callers).
+- **Dependencies:** `tldts` 6 → 7 (6.x stopped receiving public suffix list updates in April 2025, which affected registrable-domain IOC filtering), in-range `@babel/*`, `tsx` and `@types/node` updates, and `actions/checkout` + `actions/setup-node` v7. Babel 8 and commander 15 are held back because both require Node 22+.
 
 ### Fixed
 
@@ -28,11 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Packer `count` is clamped to defuse a decompression bomb.** `detectPacker` trusted the attacker-controlled `count` numeric literal that drives `staticUnpack`'s build loop; `eval((function(){})('',99,1e9,[]))` would spin a billion iterations into a multi-GB object. `count` is now clamped to the dictionary size (loss-free: indices past `keys.length` map a token to itself) and `base` is range-checked to 2–62.
 - **IOC scanner ReDoS + decode-bomb fixes.** `DOMAIN_RE`'s unbounded `(?:label\.)+` was O(n²) on single-char-label runs (`a.`×N took ~15 s; now bounded to ≤10 labels, ~20 ms) and `EMAIL_RE`'s unbounded local/domain parts re-scanned the whole no-`@` tail at every offset — both quantifier sets are now bounded to RFC-realistic maxima. Base64 blobs above 1 MiB are still recorded as IOCs but no longer decoded-and-rescanned, bounding the decode→rescan→decode amplification.
 - **Input-size cap before read + parse.** `readSourceCapped` refuses files above 16 MB (override `REAPER_MAX_SOURCE_MB`) so a file-bloat sample can't OOM the analyzer before analysis starts; wired into the parser, HTML ingester, reachability, and the `--rewrite`/`--triage`/inventory read paths. The HTML ingester's per-tag line counting is now O(n) instead of O(n²).
-
-### Added
-
-- **`examples/clickfix-xloader/`** — new reverse-engineering walkthrough of an in-the-wild **ClearFake / ClickFix** campaign that stages its C2 on **Polygon mainnet** (EtherHiding) and ends in a **XLoader / Formbook** infostealer. Captured 2026-07-28 from the compromised WordPress site `cocobproductions.com`. Ships every JavaScript and PowerShell stage as inert data — the injected `atob`+XOR-12+`new Function` loader and its plaintext decode, the `eth_call` reply that yields the C2 hostname (contract `0xB6bC9e1D…C1f2`, selector `0xb68d1809` → `enter-code-cdn.info`), the 44 KB fake-Cloudflare "verify you are human" overlay (`atob`+XOR-177) with its AES-GCM victim beacon and the clipboard PowerShell lure, and the three-layer PowerShell chain (XOR-42 downloader → XOR-77/base64 stager → 7-Zip dropper). The terminal `xloader.exe` is recorded as hashes + PE metadata only (not committed): a packed PE32+ bloated to 819 MB (~250 KB real) to defeat AV/sandbox size caps. Includes step-by-step `README.md`, analysis `REPORT.md`, and a verifying `SHA256SUMS`. A good contrast to `examples/etherhiding/` (Polygon vs BSC testnet, PowerShell vs rundll32/WebDAV, native payload retrieved vs not) and the first non-BSC use of `fetch-evm-payload.mjs`.
-- **`make verify-examples` now checks every example** that ships a `SHA256SUMS` (previously only `examples/etherhiding/`), so `clickfix-xloader` and `propellerads-sfp` artifacts are integrity-verified too.
 
 ## [0.2.0] - 2026-06-29
 
@@ -93,6 +96,8 @@ Initial public release.
 - `SECURITY.md` documents the threat model, what is and isn't an isolation boundary in reaper, and the reporting policy.
 - `prepublishOnly` script runs build + typecheck + tests before any publish.
 
-[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sresarehumantoo/reaper/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/sresarehumantoo/reaper/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sresarehumantoo/reaper/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sresarehumantoo/reaper/releases/tag/v0.1.0
