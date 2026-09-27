@@ -112,7 +112,13 @@ program
       process.exit(1);
     }
 
-    const { all: files } = expandHtmlInputs(matched);
+    const { all: files, tempDir } = expandHtmlInputs(matched);
+    if (tempDir) {
+      // The temp dir holds decoded sample payloads. Every mode ends in
+      // process.exit, so 'exit' is the one hook that always runs.
+      process.on('exit', () => fs.rmSync(tempDir, { recursive: true, force: true }));
+      for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => process.exit(130));
+    }
     if (files.length === 0) {
       console.error(`reaper: no JS/TS sources found (matched files contained no analysable scripts)`);
       process.exit(1);

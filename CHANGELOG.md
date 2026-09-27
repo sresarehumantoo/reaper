@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Unparseable input no longer triages as clean.** When Babel can't parse a unit (PowerShell/batch stages, text dumps, truncated fragments), `--triage` and `--iocs` now fall back to a line-by-line raw-text IOC scan instead of reporting nothing, and a triage that failed analysis without enough signal to convict gets the new `unknown` verdict. Previously a syntax error meant `CLEAN`, score 0, exit 0.
+- **HTML runs no longer leave decoded payloads in `/tmp`.** Scripts extracted from `.html` inputs were written to a `reaper-*` temp dir that was never removed; it is now deleted on exit, including Ctrl-C.
 
 ## [0.3.0] - 2026-09-27
 
