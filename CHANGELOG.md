@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-27
+
 ### Added
 
 - **Static-analyzer Docker image** (top-level `Dockerfile`, `make image`). Runs the full reaper CLI without a local Node install, as a non-root user with production dependencies only, and is the recommended way to analyze an untrusted sample: the README's `docker run` flags (no network, read-only root, dropped capabilities, input mounted read-only) put a real isolation boundary around the string-array decoder and eval capture, which run sample code. A `.dockerignore` allowlist keeps `examples/` (live malware) out of the build context, and a new CI job builds the image and checks its `--rewrite --no-fold` output against the committed EtherHiding artifact.
@@ -124,7 +126,8 @@ Initial public release.
 - `SECURITY.md` documents the threat model, what is and isn't an isolation boundary in reaper, and the reporting policy.
 - `prepublishOnly` script runs build + typecheck + tests before any publish.
 
-[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/sresarehumantoo/reaper/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/sresarehumantoo/reaper/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sresarehumantoo/reaper/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sresarehumantoo/reaper/compare/v0.1.1...v0.2.0
