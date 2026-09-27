@@ -27,7 +27,7 @@
  *   - 10 s wall-clock from execFileSync timeout
  *
  * For real isolation (kernel namespaces, seccomp, dropped caps), run
- * reaper itself inside the docker sandbox at `docker/Dockerfile` or use
+ * reaper itself in the static-analyzer image (top-level `Dockerfile`) or use
  * `scripts/analyze.sh --dynamic-only`. The child-process boundary here
  * is a meaningful step up from in-process vm but is NOT equivalent.
  */

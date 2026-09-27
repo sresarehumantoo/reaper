@@ -17,8 +17,9 @@
  *     into the child.
  *
  * This is a meaningful boundary but NOT equivalent to real isolation (kernel
- * namespaces, seccomp, dropped caps). For that, run reaper inside the docker
- * sandbox at `docker/Dockerfile` or via `scripts/analyze.sh`.
+ * namespaces, seccomp, dropped caps). For that, run reaper itself in the
+ * static-analyzer image (top-level `Dockerfile`, `make image`) with the
+ * locked-down `docker run` flags from the README.
  *
  * Both the string-array decoder and the eval-scope capture route through here so
  * there is a single hardened path for executing sample code.
