@@ -108,6 +108,14 @@ program
   .action(async (pattern: string, opts) => {
     const cwd: string = path.resolve(opts.cwd);
 
+    const modes = ['rewrite', 'triage', 'iocs', 'reachability', 'analyze'].filter(m => opts[m]);
+    if (modes.length > 1) program.error(`reaper: ${modes.map(m => `--${m}`).join(', ')} are separate modes; pick one`);
+    if (!['console', 'json', 'sarif'].includes(opts.format)) {
+      program.error(`reaper: unknown --format '${opts.format}' (expected console, json or sarif)`);
+    }
+    if (opts.format === 'sarif' && modes.length) program.error('reaper: --format sarif is only available for the default scan');
+    if (opts.format !== 'console' && opts.rewrite) program.error('reaper: --rewrite writes files; --format does not apply');
+
     const matched = await glob(pattern, {
       cwd,
       absolute: true,
@@ -224,12 +232,14 @@ program
     // ── IOC extraction mode (--iocs) ─────────────────────────────────────────
     if (opts.iocs) {
       const reports: IocReport[] = [];
+      let failed = 0;
       for (const ef of files) {
         const file = ef.originPath + (ef.originTag ? `#${ef.originTag}` : '');
         let src: string;
         try {
           src = readSourceCapped(ef.path);
         } catch (err: any) {
+          failed++;
           console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
           continue;
         }
@@ -252,7 +262,7 @@ program
         if (opts.output) fs.writeFileSync(opts.output, formatIocsJson(reports, iocOpts), 'utf-8');
       }
       const total = reports.reduce((s, r) => s + r.iocs.length, 0);
-      process.exit(total > 0 ? 0 : 1);
+      process.exit(total > 0 || failed > 0 ? 1 : 0);
     }
 
     // ── Reachability mode (--reachability) ───────────────────────────────────
@@ -261,7 +271,7 @@ program
         ? String(opts.entry).split(',').map((s: string) => s.trim()).filter(Boolean)
         : undefined;
 
-      const reports = [];
+      const reports: ReturnType<typeof analyzeReachability>[] = [];
       for (const ef of files) {
         try {
           reports.push(analyzeReachability(ef.path, entryPoints));
@@ -269,20 +279,15 @@ program
           console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
-      printReachability(reports, cwd);
-
-      if (opts.output) {
-        fs.writeFileSync(opts.output, JSON.stringify(reports, null, 2), 'utf-8');
-        console.log(`Reachability report written to ${opts.output}`);
-      }
+      emitReport(opts, JSON.stringify(reports, null, 2), () => printReachability(reports, cwd), 'Reachability report');
 
       const hasDead = reports.some(r => r.deadFns.length > 0);
-      process.exit(hasDead ? 1 : 0);
+      process.exit(hasDead || reports.length < files.length ? 1 : 0);
     }
 
     // ── Analysis mode (--analyze) ─────────────────────────────────────────────
     if (opts.analyze) {
-      const analyses = [];
+      const analyses: ReturnType<typeof analyzeFileInventory>[] = [];
       for (const ef of files) {
         try {
           analyses.push(analyzeFileInventory(ef.path));
@@ -290,15 +295,10 @@ program
           console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
-      printAnalysis(analyses, cwd);
-
-      if (opts.output) {
-        fs.writeFileSync(opts.output, JSON.stringify(analyses, null, 2), 'utf-8');
-        console.log(`Analysis written to ${opts.output}`);
-      }
+      emitReport(opts, JSON.stringify(analyses, null, 2), () => printAnalysis(analyses, cwd), 'Analysis');
 
       const hasDeadCode = analyses.some(a => a.deadFunctions.length > 0);
-      process.exit(hasDeadCode ? 1 : 0);
+      process.exit(hasDeadCode || analyses.length < files.length ? 1 : 0);
     }
 
     // ── Standard scan mode ────────────────────────────────────────────────────
@@ -347,7 +347,22 @@ program
       }
     }
 
-    process.exit(findings.length > 0 ? 1 : 0);
+    process.exit(findings.length > 0 || errors.length > 0 ? 1 : 0);
   });
+
+// --format json prints JSON; console prints the human report and, with
+// --output, also writes the JSON to that file.
+function emitReport(opts: { format: string; output?: string }, json: string, printConsole: () => void, label: string): void {
+  if (opts.format === 'json') {
+    if (opts.output) fs.writeFileSync(opts.output, json, 'utf-8');
+    else console.log(json);
+    return;
+  }
+  printConsole();
+  if (opts.output) {
+    fs.writeFileSync(opts.output, json, 'utf-8');
+    console.log(`${label} written to ${opts.output}`);
+  }
+}
 
 program.parse();

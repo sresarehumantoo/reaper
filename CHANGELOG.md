@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Consistent CLI exit codes and option checks.** Every mode now exits `1` when it finds something or an input fails to read/parse, and `0` otherwise; `--iocs` previously did the reverse (exit `1` when *no* IOCs were found), and a default scan where every file failed to parse exited `0`. `--triage` exits `2` when a unit is `malicious`. `--format json` is honored by `--reachability` and `--analyze`, and an unknown `--format`, `--format sarif` outside the default scan, or two mode flags at once (previously one silently won) are now errors.
+
 ### Added
 
 - **HTML: event handlers and remote references.** Inline `on*=` handler attributes (entity-decoded) are extracted as `#handler-N` script units, so every mode analyzes them. Remote `<script src>` and `<iframe>`/`<frame>` URLs, which were silently dropped, are reported by `--iocs` and `--triage` as an unscored `#external-refs` unit, and a page that only loads remote scripts no longer fails with "no JS/TS sources found".

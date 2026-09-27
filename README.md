@@ -96,7 +96,7 @@ reaper malware.js --reachability --entry sendCode,init
 reaper "src/**/*.js" --no-obfuscation --no-dead-branches
 ```
 
-Exit code is non-zero when findings are present, so it composes with CI.
+Exit codes compose with CI: `0` means nothing found, `1` means something was found (findings, dead code, IOCs, or a `suspicious`/`unknown` triage verdict) or an input failed to read or parse, and `--triage` exits `2` when any unit is `malicious`. Pick one mode per run; `--format sarif` is available for the default scan only.
 
 ### Triage (one-shot)
 
