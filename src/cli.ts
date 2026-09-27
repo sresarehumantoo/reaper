@@ -13,12 +13,12 @@ import { printReachability } from './reporter/reachability';
 import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
 import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import { foldConstants } from './analyzers/constfold';
-import { triageSource } from './triage';
+import { triageSource, verdictRank } from './triage';
 import { printTriage, formatTriageJson } from './reporter/triage';
-import { extractIocs } from './analyzers/iocs';
+import { extractIocs, extractIocsFromText } from './analyzers/iocs';
 import { printIocs, formatIocsJson } from './reporter/iocs';
 import { formatSarif } from './reporter/sarif';
-import { parseFile, readSourceCapped } from './parser';
+import { parseCode, readSourceCapped } from './parser';
 import type { Finding, ReaperResult, AnalyzerOptions } from './types';
 import type { IocReport } from './reporter/iocs';
 
@@ -196,21 +196,26 @@ program
         printTriage(reports, cwd, triageOpts);
         if (opts.output) fs.writeFileSync(opts.output, formatTriageJson(reports, triageOpts), 'utf-8');
       }
-      const worst = reports.some(r => r.verdict === 'malicious') ? 2
-        : reports.some(r => r.verdict === 'suspicious') ? 1 : 0;
-      process.exit(worst > 0 ? 1 : 0);
+      const worst = Math.max(0, ...reports.map(r => verdictRank(r.verdict)));
+      process.exit(worst === 3 ? 2 : worst > 0 || reports.length < files.length ? 1 : 0);
     }
 
     // ── IOC extraction mode (--iocs) ─────────────────────────────────────────
     if (opts.iocs) {
       const reports: IocReport[] = [];
       for (const ef of files) {
+        const file = ef.originPath + (ef.originTag ? `#${ef.originTag}` : '');
+        let src: string;
         try {
-          const ast  = parseFile(ef.path);
-          const iocs = extractIocs(ast, ef.path);
-          reports.push({ file: ef.originPath + (ef.originTag ? `#${ef.originTag}` : ''), iocs });
+          src = readSourceCapped(ef.path);
         } catch (err: any) {
-          console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
+          console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
+          continue;
+        }
+        try {
+          reports.push({ file, iocs: extractIocs(parseCode(src, ef.path), ef.path) });
+        } catch (err: any) {
+          reports.push({ file, iocs: extractIocsFromText(src), parseError: err.message });
         }
       }
       const iocOpts = { defang: !!opts.defang };

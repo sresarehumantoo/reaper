@@ -16,11 +16,13 @@ import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import { foldConstants } from './analyzers/constfold';
 import { analyzeObfuscation } from './analyzers/obfuscation';
 import { analyzeEncoded } from './analyzers/encoded';
-import { extractIocs } from './analyzers/iocs';
+import { extractIocs, extractIocsFromText } from './analyzers/iocs';
 import type { Finding } from './types';
 import type { Ioc } from './analyzers/iocs';
 
-export type Verdict = 'clean' | 'suspicious' | 'malicious';
+// 'unknown': analysis failed and nothing scored high enough to convict, so the
+// input must not be reported as clean.
+export type Verdict = 'clean' | 'unknown' | 'suspicious' | 'malicious';
 
 export interface TriageReport {
   file:        string;     // user-facing source name
@@ -76,11 +78,16 @@ export function triageSource(code: string, filePath: string, displayName: string
     report.iocs = extractIocs(ast, displayName);
   } catch (e: any) {
     report.error = `analysis of deobfuscated form failed: ${e?.message ?? String(e)}`;
+    report.iocs = extractIocsFromText(working);
   }
 
   // ── 3. Score a coarse verdict ────────────────────────────────────────────
   scoreVerdict(report);
   return report;
+}
+
+export function verdictRank(v: Verdict): number {
+  return v === 'malicious' ? 3 : v === 'suspicious' ? 2 : v === 'unknown' ? 1 : 0;
 }
 
 function scoreVerdict(r: TriageReport): void {
@@ -109,7 +116,9 @@ function scoreVerdict(r: TriageReport): void {
   const viaB64 = r.iocs.filter(i => (i.context ?? '').includes('base64')).length;
   if (viaB64) { score += 2; reasons.push(`${viaB64} indicator(s) recovered from base64`); }
 
+  if (r.error) reasons.push('parse failed; IOCs from raw-text scan, no findings');
+
   r.score = score;
-  r.verdict = score >= 6 ? 'malicious' : score >= 2 ? 'suspicious' : 'clean';
+  r.verdict = score >= 6 ? 'malicious' : score >= 2 ? 'suspicious' : r.error ? 'unknown' : 'clean';
   r.reasons = [...new Set(reasons)];
 }
