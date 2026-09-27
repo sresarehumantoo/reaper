@@ -28,7 +28,7 @@
     "node": ">=20"
   },
   "bin": {
-    "reaper": "./dist/cli.js"
+    "reaper": "dist/cli.js"
   },
   "files": [
     "dist/",
