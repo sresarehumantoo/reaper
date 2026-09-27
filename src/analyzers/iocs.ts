@@ -138,6 +138,15 @@ export function extractIocsFromText(text: string): Ioc[] {
   return scanner.results();
 }
 
+/** IOCs for remote URLs an HTML page references but reaper doesn't fetch. */
+export function extractIocsFromReferences(refs: { url: string; line: number; context: string }[]): Ioc[] {
+  const scanner = createScanner();
+  for (const r of refs) {
+    scanner.scanString(r.url, { start: { line: r.line, column: 0 } } as t.SourceLocation, r.context);
+  }
+  return scanner.results();
+}
+
 function createScanner() {
   const found = new Map<string, Ioc>(); // key = type|value
   const classified = new Set<string>(); // exact values matched to a specific type

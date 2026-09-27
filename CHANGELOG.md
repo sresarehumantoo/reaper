@@ -6,12 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **HTML: event handlers and remote references.** Inline `on*=` handler attributes (entity-decoded) are extracted as `#handler-N` script units, so every mode analyzes them. Remote `<script src>` and `<iframe>`/`<frame>` URLs, which were silently dropped, are reported by `--iocs` and `--triage` as an unscored `#external-refs` unit, and a page that only loads remote scripts no longer fails with "no JS/TS sources found".
+
 ### Fixed
 
 - **Unparseable input no longer triages as clean.** When Babel can't parse a unit (PowerShell/batch stages, text dumps, truncated fragments), `--triage` and `--iocs` now fall back to a line-by-line raw-text IOC scan instead of reporting nothing, and a triage that failed analysis without enough signal to convict gets the new `unknown` verdict. Previously a syntax error meant `CLEAN`, score 0, exit 0.
 - **HTML runs no longer leave decoded payloads in `/tmp`.** Scripts extracted from `.html` inputs were written to a `reaper-*` temp dir that was never removed; it is now deleted on exit, including Ctrl-C.
 - **Sandbox shim now sees `[].constructor.constructor(...)`.** `docker/runner.js` replaced `global.Function` but not `Function.prototype.constructor`, so the usual obfuscator route to `Function`, and every `AsyncFunction`/`GeneratorFunction`/`AsyncGeneratorFunction` construction, ran unlogged and slipped past `--block-eval`. All four prototypes' `constructor` now point at the logging wrapper.
 - **`--reachability` eval capture misses.** The capture worker had no `atob` (browser payloads died with a ReferenceError before the first layer), recorded `Function` only when called with `new`, never saw `.constructor.constructor` or the async/generator constructors, and dropped `setTimeout("string")`. It now hooks the vm realm's own constructors (so constructed functions also stay inside the context instead of running in the worker's realm), provides `atob`/`btoa`, and captures string timers as layers.
+- **HTML ingestion ReDoS.** The `<script>` and comment regexes rescanned to EOF from every unterminated `<script`/`<!--`, so 40k repetitions (~320 KB) took 15 s and a file at the 16 MB cap would run for hours. The HTML scan is now a single forward pass.
 
 ## [0.3.0] - 2026-09-27
 

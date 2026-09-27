@@ -10,12 +10,12 @@ import { formatJson } from './reporter/json';
 import { analyzeFileInventory, printAnalysis } from './reporter/analysis';
 import { analyzeReachability } from './analyzers/reachability';
 import { printReachability } from './reporter/reachability';
-import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
+import { scanHtml, isHtmlPath, type HtmlReference } from './parser/html';
 import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import { foldConstants } from './analyzers/constfold';
-import { triageSource, verdictRank } from './triage';
+import { triageSource, triageReferences, verdictRank } from './triage';
 import { printTriage, formatTriageJson } from './reporter/triage';
-import { extractIocs, extractIocsFromText } from './analyzers/iocs';
+import { extractIocs, extractIocsFromText, extractIocsFromReferences } from './analyzers/iocs';
 import { printIocs, formatIocsJson } from './reporter/iocs';
 import { formatSarif } from './reporter/sarif';
 import { parseCode, readSourceCapped } from './parser';
@@ -43,22 +43,29 @@ export interface ExpandedFile {
   originTag:   string | null;      // e.g. "data-uri-0", "script-3", or null for plain JS
 }
 
-function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; tempDir: string | null } {
+interface PageReferences {
+  originPath: string;
+  references: HtmlReference[];
+}
+
+function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; pages: PageReferences[]; tempDir: string | null } {
   const hasHtml = files.some(isHtmlPath);
   if (!hasHtml) return {
     all: files.map(p => ({ path: p, originPath: p, originTag: null })),
+    pages: [],
     tempDir: null,
   };
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reaper-'));
   const all: ExpandedFile[] = [];
+  const pages: PageReferences[] = [];
   for (const f of files) {
     if (!isHtmlPath(f)) {
       all.push({ path: f, originPath: f, originTag: null });
       continue;
     }
-    const scripts = extractScriptsFromHtml(f);
-    if (scripts.length === 0) continue;
+    const { scripts, references } = scanHtml(f);
+    if (references.length) pages.push({ originPath: f, references });
     for (const s of scripts) {
       const tag     = s.virtualPath.split('#').pop()!.replace(/\.js$/, '');
       const outPath = path.join(tempDir, `${path.basename(f, path.extname(f))}.${tag}.js`);
@@ -66,7 +73,7 @@ function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; tempDir: stri
       all.push({ path: outPath, originPath: f, originTag: tag });
     }
   }
-  return { all, tempDir };
+  return { all, pages, tempDir };
 }
 
 function displayPath(cwd: string, ef: ExpandedFile): string {
@@ -112,14 +119,15 @@ program
       process.exit(1);
     }
 
-    const { all: files, tempDir } = expandHtmlInputs(matched);
+    const { all: files, pages, tempDir } = expandHtmlInputs(matched);
     if (tempDir) {
       // The temp dir holds decoded sample payloads. Every mode ends in
       // process.exit, so 'exit' is the one hook that always runs.
       process.on('exit', () => fs.rmSync(tempDir, { recursive: true, force: true }));
       for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => process.exit(130));
     }
-    if (files.length === 0) {
+    // A page that only loads remote scripts still has something to report.
+    if (files.length === 0 && !(pages.length && (opts.iocs || opts.triage))) {
       console.error(`reaper: no JS/TS sources found (matched files contained no analysable scripts)`);
       process.exit(1);
     }
@@ -185,13 +193,20 @@ program
     // ── Triage mode (--triage) ───────────────────────────────────────────────
     if (opts.triage) {
       const reports = [];
+      let failed = 0;
       for (const ef of files) {
         try {
           const src = readSourceCapped(ef.path);
           reports.push(triageSource(src, ef.path, displayPath(cwd, ef), opts.fold !== false));
         } catch (err: any) {
+          failed++;
           console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
+      }
+      for (const p of pages) {
+        const html = readSourceCapped(p.originPath);
+        reports.push(triageReferences(html, `${path.relative(cwd, p.originPath)}#external-refs`,
+          extractIocsFromReferences(p.references)));
       }
       const triageOpts = { defang: !!opts.defang };
       if (opts.format === 'json') {
@@ -203,7 +218,7 @@ program
         if (opts.output) fs.writeFileSync(opts.output, formatTriageJson(reports, triageOpts), 'utf-8');
       }
       const worst = Math.max(0, ...reports.map(r => verdictRank(r.verdict)));
-      process.exit(worst === 3 ? 2 : worst > 0 || reports.length < files.length ? 1 : 0);
+      process.exit(worst === 3 ? 2 : worst > 0 || failed > 0 ? 1 : 0);
     }
 
     // ── IOC extraction mode (--iocs) ─────────────────────────────────────────
@@ -223,6 +238,9 @@ program
         } catch (err: any) {
           reports.push({ file, iocs: extractIocsFromText(src), parseError: err.message });
         }
+      }
+      for (const p of pages) {
+        reports.push({ file: `${p.originPath}#external-refs`, iocs: extractIocsFromReferences(p.references) });
       }
       const iocOpts = { defang: !!opts.defang };
       if (opts.format === 'json') {

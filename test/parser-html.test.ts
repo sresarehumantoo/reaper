@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { extractScriptsFromHtml, isHtmlPath } from '../src/parser/html';
-import { example, fixture } from './helpers';
+import fs from 'fs';
+import path from 'path';
+import { extractScriptsFromHtml, scanHtml, isHtmlPath } from '../src/parser/html';
+import { example, fixture, withTempDir } from './helpers';
 
 test('isHtmlPath: recognises .html and .htm', () => {
   assert.equal(isHtmlPath('foo.html'), true);
@@ -46,4 +48,39 @@ test('extractScriptsFromHtml: EtherHiding sample yields exactly one base64 data-
 test('extractScriptsFromHtml: returns empty array for a JS-free HTML file', () => {
   const scripts = extractScriptsFromHtml(fixture('html-no-scripts.html'));
   assert.equal(scripts.length, 0);
+});
+
+test('scanHtml: event handlers become scripts, remote src/iframe URLs become references', async () => {
+  await withTempDir(dir => {
+    const file = path.join(dir, 'page.html');
+    fs.writeFileSync(file, [
+      '<script src="https://cdn.example.test/a.js"></script>',
+      '<script src="/relative.js"></script>',
+      '<script>if (a<b && c) { x = 1 }</script>',
+      '<body onload="fetch(&quot;https://c2.example.test/p&quot;)">',
+      '<!-- <div onclick="commented()"></div> -->',
+      '<iframe src="//frame.example.test/x"></iframe>',
+    ].join('\n'));
+    const { scripts, references } = scanHtml(file);
+    assert.deepEqual(scripts.map(s => [s.origin, s.line, s.source]), [
+      ['inline', 3, 'if (a<b && c) { x = 1 }'],
+      ['event-handler', 4, 'fetch("https://c2.example.test/p")'],
+    ]);
+    assert.deepEqual(references, [
+      { url: 'https://cdn.example.test/a.js', line: 1, context: 'script-src' },
+      { url: '//frame.example.test/x', line: 6, context: 'iframe-src' },
+    ]);
+  });
+});
+
+test('scanHtml: unterminated openers stay linear', async () => {
+  await withTempDir(dir => {
+    for (const opener of ['<script ', '<script>', '<!--', '<a b="']) {
+      const file = path.join(dir, 'bomb.html');
+      fs.writeFileSync(file, opener.repeat(200_000));
+      const t = Date.now();
+      scanHtml(file);
+      assert.ok(Date.now() - t < 2000, `${opener} x200k took ${Date.now() - t}ms`);
+    }
+  });
 });

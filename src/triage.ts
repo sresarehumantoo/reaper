@@ -45,13 +45,28 @@ const HIGH_SIGNAL_IOCS = new Set<Ioc['type']>([
 ]);
 const NETWORK_IOCS = new Set<Ioc['type']>(['url', 'domain', 'ipv4', 'ipv6']);
 
-export function triageSource(code: string, filePath: string, displayName: string, fold = true): TriageReport {
-  const sha256 = crypto.createHash('sha256').update(code).digest('hex');
-  const report: TriageReport = {
-    file: displayName, sha256, bytes: Buffer.byteLength(code),
-    deobfuscated: false, stringArray: null, folds: 0,
+function emptyReport(code: string, displayName: string): TriageReport {
+  return {
+    file: displayName, sha256: crypto.createHash('sha256').update(code).digest('hex'),
+    bytes: Buffer.byteLength(code), deobfuscated: false, stringArray: null, folds: 0,
     findings: [], iocs: [], score: 0, verdict: 'clean', reasons: [],
   };
+}
+
+/**
+ * Unit for the remote scripts/frames an HTML page pulls in. Listed for the
+ * analyst but not scored: nearly every benign page loads CDN scripts, and
+ * nothing behind the URL was analyzed.
+ */
+export function triageReferences(html: string, displayName: string, iocs: Ioc[]): TriageReport {
+  const report = emptyReport(html, displayName);
+  report.iocs = iocs;
+  report.reasons = ['external references, not fetched or scored'];
+  return report;
+}
+
+export function triageSource(code: string, filePath: string, displayName: string, fold = true): TriageReport {
+  const report = emptyReport(code, displayName);
 
   // ── 1. Deobfuscate: string-array rewrite then constant-fold ──────────────
   let working = code;
