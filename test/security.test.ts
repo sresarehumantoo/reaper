@@ -33,3 +33,32 @@ test('detectAndRewriteStringArray: executes in an isolated worker and still rewr
   assert.equal(r.substitutions, 28);
   assert.equal(r.error, null);
 });
+
+test('docker shim: every Function-constructor route is logged and blocked', async () => {
+  const { spawnSync } = await import('child_process');
+  const { repoRoot } = await import('./helpers');
+  await withTempDir(dir => {
+    const probe = path.join(dir, 'probe.js');
+    fs.writeFileSync(probe, `
+      const routes = [
+        () => Function('return 1')(),
+        () => [].constructor.constructor('return 2')(),
+        () => (async function () {}).constructor('return 3'),
+        () => (function* () {}).constructor('yield 4'),
+        () => (async function* () {}).constructor('yield 5'),
+      ];
+      let ran = 0;
+      for (const r of routes) { try { r(); ran++; } catch {} }
+      console.log('ran=' + ran);
+      process.exit(0);
+    `);
+    const res = spawnSync(process.execPath, ['--require', path.join(repoRoot, 'docker/runner.js'), probe], {
+      env: { PATH: process.env.PATH, REAPER_BLOCK_EVAL: '1', SANDBOX_TIMEOUT: '5000' },
+      encoding: 'utf-8',
+    });
+    assert.match(res.stdout, /ran=0/);
+    for (const body of ['return 1', 'return 2', 'return 3', 'yield 4', 'yield 5']) {
+      assert.ok(res.stderr.includes(`"detail":"${body}"`), `not logged: ${body}`);
+    }
+  });
+});
