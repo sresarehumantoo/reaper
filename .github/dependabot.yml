@@ -46,10 +46,6 @@ updates:
       # tsx tracks TS major versions; pin in the same group.
       - dependency-name: "tsx"
         update-types: ["version-update:semver-major"]
-      # commander 15 is ESM-only and requires Node 22+. Revisit now that the
-      # floor has moved.
-      - dependency-name: "commander"
-        update-types: ["version-update:semver-major"]
 
   # GitHub Actions versions
   - package-ecosystem: github-actions

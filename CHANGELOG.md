@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - **Breaking: Node.js 22.18+ (or 24.11+) is now required.** Node 20 is past end of life, and the new floor matches Babel 8's `engines` range. The build stays CommonJS: Node 22.12+ can `require()` the ESM-only dependencies directly. CI now tests Node 22 and 24.
-- **Dependencies:** Babel 7 → 8. Babel 8 ships its own types, so `@types/babel__generator` and `@types/babel__traverse` are gone, and the parser plugins it enables by default (`classProperties`, `optionalChaining`, etc.) are no longer listed.
+- **Dependencies:** Babel 7 → 8 and commander 14 → 15. Babel 8 ships its own types, so `@types/babel__generator` and `@types/babel__traverse` are gone, and the parser plugins it enables by default (`classProperties`, `optionalChaining`, etc.) are no longer listed.
 
 ### Fixed
 
