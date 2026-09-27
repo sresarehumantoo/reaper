@@ -3,3 +3,6 @@ dist/
 build/
 *.js.map
 .DS_Store
+
+# Local agent working notes — not shared
+CLAUDE.md
