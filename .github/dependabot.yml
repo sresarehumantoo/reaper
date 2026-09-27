@@ -46,10 +46,8 @@ updates:
       # tsx tracks TS major versions; pin in the same group.
       - dependency-name: "tsx"
         update-types: ["version-update:semver-major"]
-      # Babel 8 and commander 15 are ESM-only and require Node 22+, which
-      # conflicts with engines.node >=20. Revisit when the floor moves.
-      - dependency-name: "@babel/*"
-        update-types: ["version-update:semver-major"]
+      # commander 15 is ESM-only and requires Node 22+. Revisit now that the
+      # floor has moved.
       - dependency-name: "commander"
         update-types: ["version-update:semver-major"]
 

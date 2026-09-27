@@ -50,12 +50,7 @@ export function parseCode(code: string, filePath: string): File {
       ...(isTS ? (['typescript'] as const) : (['flow'] as const)),
       ...(isJSX ? (['jsx'] as const) : []),
       'decorators-legacy',
-      'classProperties',
-      'classStaticBlock',
-      'dynamicImport',
       'exportDefaultFrom',
-      'nullishCoalescingOperator',
-      'optionalChaining',
     ],
   });
 }

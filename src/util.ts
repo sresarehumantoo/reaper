@@ -6,9 +6,10 @@ import _generate from '@babel/generator';
 import * as t from '@babel/types';
 import type { File } from '@babel/types';
 
-// @babel/traverse and @babel/generator ship as CJS with the real function on
-// `.default` under esModuleInterop. Normalise both so every module imports the
-// callable form from here instead of repeating the interop dance.
+// @babel/traverse and @babel/generator are ESM, and require(esm) returns the
+// module namespace, so the real function is on `.default`. Normalise both so
+// every module imports the callable form from here instead of repeating the
+// interop dance.
 export const traverse = (typeof _traverse === 'function'
   ? _traverse
   : (_traverse as any).default) as typeof _traverse;

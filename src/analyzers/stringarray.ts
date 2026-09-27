@@ -510,7 +510,7 @@ function inlineEnvIntoFn(fn: t.Function, env: ConstEnv): void {
       const obj = env[p.node.object.name];
       if (obj && typeof obj === 'object' && p.node.property.name in (obj as any)) {
         const v = (obj as any)[p.node.property.name];
-        p.replaceWith(typeof v === 'number' ? t.numericLiteral(v) : t.stringLiteral(v));
+        p.replaceWith(typeof v === 'number' ? t.valueToNode(v) : t.stringLiteral(v));
       }
     },
     Identifier(p) {
@@ -520,7 +520,7 @@ function inlineEnvIntoFn(fn: t.Function, env: ConstEnv): void {
       if (p.parent && t.isFunctionDeclaration(p.parent) && p.parent.id === p.node) return;
       if (p.parent && t.isFunction(p.parent) && (p.parent as any).params?.includes(p.node)) return;
       const v = env[p.node.name];
-      if (typeof v === 'number') p.replaceWith(t.numericLiteral(v));
+      if (typeof v === 'number') p.replaceWith(t.valueToNode(v));
       else if (typeof v === 'string') p.replaceWith(t.stringLiteral(v));
     },
   });

@@ -91,11 +91,13 @@ function runPass(ast: t.File): number {
           return;
         }
         if (!isLiteral(argument)) return;
+        // -<number> is already the canonical form toNode emits for negatives.
+        if (operator === '-' && t.isNumericLiteral(argument)) return;
         const a = literalValue(argument);
         if (typeof a !== 'number') return;
         const folded = operator === '-' ? -a : operator === '+' ? +a : operator === '~' ? ~a : undefined;
         if (folded === undefined) return;
-        path.replaceWith(t.numericLiteral(folded));
+        path.replaceWith(toNode(folded)!);
         changes++;
       },
     },
@@ -118,8 +120,7 @@ function runPass(ast: t.File): number {
         if (!node.computed) return;
         if (!t.isStringLiteral(node.property)) return;
         if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(node.property.value)) return;
-        node.property = t.identifier(node.property.value);
-        node.computed = false;
+        Object.assign(node, { property: t.identifier(node.property.value), computed: false });
         changes++;
       },
     },
@@ -197,19 +198,26 @@ function foldCall(node: t.CallExpression): string | number | undefined {
 
 // ── Literal helpers ───────────────────────────────────────────────────────
 
-function isLiteral(n: t.Node): n is t.StringLiteral | t.NumericLiteral | t.BooleanLiteral {
-  return t.isStringLiteral(n) || t.isNumericLiteral(n) || t.isBooleanLiteral(n);
+// Babel 8 forbids negative NumericLiterals, so a negative number is always
+// `-<NumericLiteral>` and has to count as a literal operand in its own right.
+function isNegatedNumber(n: t.Node): n is t.UnaryExpression & { argument: t.NumericLiteral } {
+  return t.isUnaryExpression(n) && n.operator === '-' && t.isNumericLiteral(n.argument);
+}
+
+function isLiteral(n: t.Node): boolean {
+  return t.isStringLiteral(n) || t.isNumericLiteral(n) || t.isBooleanLiteral(n) || isNegatedNumber(n);
 }
 
 function literalValue(n: t.Node): string | number | boolean {
   if (t.isStringLiteral(n) || t.isNumericLiteral(n) || t.isBooleanLiteral(n)) return n.value;
+  if (isNegatedNumber(n)) return -n.argument.value;
   return undefined as never;
 }
 
 function numericArg(n: t.Node | undefined | null): number | undefined {
   if (!n) return undefined;
   if (t.isNumericLiteral(n)) return n.value;
-  if (t.isUnaryExpression(n) && n.operator === '-' && t.isNumericLiteral(n.argument)) return -n.argument.value;
+  if (isNegatedNumber(n)) return -n.argument.value;
   return undefined;
 }
 
@@ -218,6 +226,7 @@ function numericArg(n: t.Node | undefined | null): number | undefined {
 function truthinessOf(n: t.Node): boolean | undefined {
   if (t.isStringLiteral(n)) return n.value.length > 0;
   if (t.isNumericLiteral(n)) return n.value !== 0;
+  if (isNegatedNumber(n)) return n.argument.value !== 0;
   if (t.isBooleanLiteral(n)) return n.value;
   if (t.isArrayExpression(n) || t.isObjectExpression(n)) return true; // objects/arrays are truthy
   if (t.isNullLiteral(n)) return false;
@@ -246,7 +255,7 @@ function toNode(v: string | number | boolean): t.Expression | undefined {
   if (typeof v === 'string') return t.stringLiteral(v);
   if (typeof v === 'boolean') return t.booleanLiteral(v);
   if (typeof v === 'number' && Number.isFinite(v)) {
-    return v < 0 ? t.unaryExpression('-', t.numericLiteral(-v)) : t.numericLiteral(v);
+    return v < 0 || Object.is(v, -0) ? t.unaryExpression('-', t.numericLiteral(-v)) : t.numericLiteral(v);
   }
   return undefined;
 }
