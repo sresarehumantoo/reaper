@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-27
+
 ### Added
 
 - **HTML: event handlers and remote references.** Inline `on*=` handler attributes (entity-decoded) are extracted as `#handler-N` script units, so every mode analyzes them. Remote `<script src>` and `<iframe>`/`<frame>` URLs, which were silently dropped, are reported by `--iocs` and `--triage` as an unscored `#external-refs` unit, and a page that only loads remote scripts no longer fails with "no JS/TS sources found".
@@ -114,7 +116,8 @@ Initial public release.
 - `SECURITY.md` documents the threat model, what is and isn't an isolation boundary in reaper, and the reporting policy.
 - `prepublishOnly` script runs build + typecheck + tests before any publish.
 
-[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/sresarehumantoo/reaper/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sresarehumantoo/reaper/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sresarehumantoo/reaper/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sresarehumantoo/reaper/compare/v0.1.0...v0.1.1
