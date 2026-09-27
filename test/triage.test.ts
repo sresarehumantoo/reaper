@@ -32,3 +32,15 @@ test('triage: benign source scores clean', () => {
   assert.equal(r.verdict, 'clean');
   assert.equal(r.iocs.length, 0);
 });
+
+test('triage: unparseable input is never clean, and its IOCs still surface', () => {
+  const r = triageSource('var u = "https://evil.example.com/x";\nfunction (', 'broken.js', 'broken.js');
+  assert.ok(r.error);
+  assert.ok(r.iocs.some(i => i.type === 'url' && i.value === 'https://evil.example.com/x'));
+  assert.notEqual(r.verdict, 'clean');
+});
+
+test('triage: unparseable input with no signal is unknown', () => {
+  const r = triageSource('function (', 'broken.js', 'broken.js');
+  assert.equal(r.verdict, 'unknown');
+});

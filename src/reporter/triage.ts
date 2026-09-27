@@ -1,10 +1,11 @@
 import chalk from 'chalk';
 import path from 'path';
-import type { TriageReport, Verdict } from '../triage';
+import { verdictRank, type TriageReport, type Verdict } from '../triage';
 import { renderIocValue, locLabel } from '../util';
 
 const VERDICT_STYLE: Record<Verdict, (s: string) => string> = {
   clean:      chalk.green,
+  unknown:    chalk.magenta,
   suspicious: chalk.yellow,
   malicious:  chalk.red.bold,
 };
@@ -51,7 +52,7 @@ export function printTriage(reports: TriageReport[], cwd: string, opts: TriagePr
   }
 
   const worst = reports.reduce<Verdict>((acc, r) =>
-    rank(r.verdict) > rank(acc) ? r.verdict : acc, 'clean');
+    verdictRank(r.verdict) > verdictRank(acc) ? r.verdict : acc, 'clean');
   console.log(`${chalk.bold('Overall:')} ${VERDICT_STYLE[worst](worst.toUpperCase())} across ${reports.length} unit(s)\n`);
 }
 
@@ -62,8 +63,4 @@ export function formatTriageJson(reports: TriageReport[], opts: TriagePrintOptio
     iocs: r.iocs.map(i => ({ ...i, value: renderIocValue(i.type, i.value, true) })),
   }));
   return JSON.stringify(out, null, 2);
-}
-
-function rank(v: Verdict): number {
-  return v === 'malicious' ? 2 : v === 'suspicious' ? 1 : 0;
 }

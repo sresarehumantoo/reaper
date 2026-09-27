@@ -27,9 +27,9 @@ Originally built to triage JS malware samples - packed payloads, eval layers, ch
 - Dead branches via constant folding (`if (false)`, `1 === 2`, etc.)
 - Obfuscation patterns: `eval`, `new Function`, `setTimeout("...")`, `atob`, `String.fromCharCode(...)`, bracket access to `['eval']`/`['constructor']`, high-entropy string literals, hex/unicode escape density
 - Cross-scope reachability: call-graph BFS from auto-detected or user-supplied entry points
-- Eval-aware scope capture - intercepts `eval`'d source and recursively analyses the inner layers
+- Eval-aware scope capture - intercepts `eval`, `Function` (including `.constructor.constructor` and async/generator variants) and string timers in an isolated child process, and recursively analyses the inner layers
 - `p,a,c,k,e,r` static unpack + string folding inside dead function bodies (recovers constant strings from code that won't run)
-- **obfuscator.io string-array rewriter** - detects the array-fn + decoder + IIFE-shuffle + wrapper-fn pattern (including nested wrappers), boots the decoder in a vm, inlines enclosing-scope const lookups, and substitutes every wrapper call with its plaintext string. Output is a fully rewritten `.deobf.js`
+- **obfuscator.io string-array rewriter** - detects the array-fn + decoder + IIFE-shuffle + wrapper-fn pattern (including nested wrappers), boots the decoder in an isolated child process (`--frozen-intrinsics`, 128 MB heap, hard timeout, stripped env), inlines enclosing-scope const lookups, and substitutes every wrapper call with its plaintext string. Output is a fully rewritten `.deobf.js`
 - **Generic constant-folding pass** - a fixpoint partial-evaluator that collapses the mechanical transforms obfuscators rely on beyond the string-array: `atob`/`unescape`/`decodeURIComponent`, `String.fromCharCode`, `parseInt`/`Number`, string concat and `Array.join`, pure-literal arithmetic (`^ & | << >> + - * / %`), `!0`/`![]`/`!![]`/`void` truthiness, and `obj["x"]` → `obj.x`. Runs after the string-array rewrite during `--rewrite` (disable with `--no-fold`)
 - **XOR-loop decoder recovery** - detects functions of the form `for (i) out += fromCharCode(s.charCodeAt(i) ^ k.charCodeAt(i % k.length))` and, when callers pass string-literal arguments, statically recovers the plaintext into the finding
 - **AAEncode/JJEncode detection** - flags the katakana-heavy ASCII-art encoding family. Recovery requires execution; route through `scripts/analyze.sh` or `--reachability`
@@ -41,7 +41,7 @@ Originally built to triage JS malware samples - packed payloads, eval layers, ch
 - Common in real-world DOM dumps where the malicious payload is smuggled as a base64 data URI in a `<script src=...>`
 
 **Dynamic analysis (Docker sandbox):**
-- `node:20-alpine` container, non-root uid 1001, all caps dropped, `no-new-privileges`
+- `node:24-alpine` container, non-root uid 1001, all caps dropped, `no-new-privileges`
 - `--network none`, 256 MB memory cap, 0.5 CPU, read-only FS, `noexec` tmpfs
 - Pre-loaded monitoring shim logs `eval` / `new Function` / `setTimeout(string)` calls, `require()`s, env-var access, `fetch`/`net`/`http`/`fs` calls as `[REAPER]` JSON lines on stderr
 - Hard wall-clock timeout, `child_process` / `cluster` / `worker_threads` blocked
@@ -52,7 +52,7 @@ Originally built to triage JS malware samples - packed payloads, eval layers, ch
 
 ## Install
 
-From npm (once published):
+From npm:
 
 ```bash
 npm install -g @sresarehumantoo/reaper
@@ -96,7 +96,7 @@ reaper malware.js --reachability --entry sendCode,init
 reaper "src/**/*.js" --no-obfuscation --no-dead-branches
 ```
 
-Exit code is non-zero when findings are present, so it composes with CI.
+Exit codes compose with CI: `0` means nothing found, `1` means something was found (findings, dead code, IOCs, or a `suspicious`/`unknown` triage verdict) or an input failed to read or parse, and `--triage` exits `2` when any unit is `malicious`. Pick one mode per run; `--format sarif` is available for the default scan only.
 
 ### Triage (one-shot)
 
@@ -199,15 +199,18 @@ src/
   cli.ts                # commander entrypoint
   parser/
     index.ts            # @babel/parser wrapper
-    html.ts             # .html input → extracted <script> / data: URI subfiles
+    html.ts             # .html input → <script> / data: URI / event-handler subfiles + remote refs
   analyzers/
     imports.ts          # unused imports
     references.ts       # unused vars / functions
     unreachable.ts      # code after return/throw
     branches.ts         # constant-folded dead branches
     obfuscation.ts      # eval, Function, atob, fromCharCode, entropy
+    encoded.ts          # XOR-loop decoder recovery, AAEncode/JJEncode detection
     reachability.ts     # top-level cross-scope reachability analyzer
     evalscope.ts        # eval interception → captured inner-layer sources
+    isolate.ts          # the one hardened child-process path for running sample code
+    *-worker.cjs        # dependency-free workers isolate.ts spawns (copied to dist/)
     packer.ts           # p,a,c,k,e,r detection + static unpack
     stringarray.ts      # obfuscator.io string-array detect + static rewrite
     constfold.ts        # generic constant-folding / partial-evaluation pass
@@ -216,12 +219,16 @@ src/
     functions.ts        # function metadata extraction
   triage.ts             # one-shot deobfuscate → findings → IOCs → verdict
   util.ts               # shared traverse/generate interop, entropy, defang
+  types.ts              # shared Finding / option types
   graph/
     callgraph.ts        # build call graph from AST
     reachability.ts     # BFS over the graph, entry-point detection
   reporter/
     console.ts          # default human-readable output
     json.ts             # JSON output
+    sarif.ts            # SARIF 2.1.0 output
+    iocs.ts             # --iocs report
+    triage.ts           # --triage report
     analysis.ts         # --analyze inventory report
     reachability.ts     # --reachability report
 docker/

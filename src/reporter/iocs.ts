@@ -6,6 +6,8 @@ import { renderIocValue, truncate, locLabel } from '../util';
 export interface IocReport {
   file: string;
   iocs: Ioc[];
+  /** Set when the input didn't parse and IOCs came from a raw-text scan. */
+  parseError?: string;
 }
 
 const TYPE_COLOR: Partial<Record<IocType, (s: string) => string>> = {
@@ -40,6 +42,7 @@ export function printIocs(reports: IocReport[], cwd: string, opts: IocPrintOptio
   for (const r of reports) {
     const rel = path.relative(cwd, r.file);
     console.log(chalk.bold.underline(rel));
+    if (r.parseError) console.log(chalk.yellow(`  ! parse failed, raw-text scan: ${r.parseError}`));
 
     if (r.iocs.length === 0) {
       console.log(chalk.dim('  (no indicators)'));

@@ -64,8 +64,10 @@ const context = {
 
   fetch:          undefined,
   XMLHttpRequest: class { open() {} send() {} setRequestHeader() {} },
-  setTimeout:     fn => { if (typeof fn === 'function') { /* noop */ } },
-  setInterval:    () => {},
+  // String timers are eval in disguise: capture them as layers. Function
+  // callbacks stay unscheduled.
+  setTimeout:     fn => { if (typeof fn === 'string') context.eval(fn); },
+  setInterval:    fn => { if (typeof fn === 'string') context.eval(fn); },
   clearTimeout:   () => {},
   clearInterval:  () => {},
 
@@ -81,13 +83,10 @@ const context = {
     }
   },
 
-  Function: new Proxy(Function, {
-    construct(target, args) {
-      const body = String(args.at(-1) ?? '');
-      layers.push({ index: layerIndex++, length: body.length, source: '(function(){' + body + '})' });
-      return new target(...args);
-    },
-  }),
+  // Browser payloads decode with atob almost universally; without it the
+  // capture dies with a ReferenceError before reaching the first layer.
+  atob: s => Buffer.from(String(s), 'base64').toString('latin1'),
+  btoa: s => Buffer.from(String(s), 'latin1').toString('base64'),
 
   String, Number, Boolean, Array, Object, Math, JSON, RegExp, Error,
   parseInt, parseFloat, isNaN, isFinite,
@@ -98,6 +97,28 @@ const context = {
 const vmContext = vm.createContext(context);
 context.window = vmContext;
 context.self   = vmContext;
+
+// Hook the context realm's own Function constructors, reached either as the
+// `Function` global (called with or without `new`) or through any function's
+// prototype chain (`[].constructor.constructor(...)`, async/generator
+// variants). The constructed functions stay in the vm realm.
+function recordFunctionLayer(args) {
+  const body = String(args.at(-1) ?? '');
+  layers.push({ index: layerIndex++, length: body.length, source: '(function(){' + body + '})' });
+}
+const realmCtors = vm.runInContext(
+  '[function () {}, async function () {}, function* () {}, async function* () {}]' +
+  '.map(f => Object.getPrototypeOf(f).constructor)',
+  vmContext,
+);
+for (const Ctor of realmCtors) {
+  const wrapped = new Proxy(Ctor, {
+    construct(target, args) { recordFunctionLayer(args); return Reflect.construct(target, args); },
+    apply(target, thisArg, args) { recordFunctionLayer(args); return Reflect.apply(target, thisArg, args); },
+  });
+  Object.defineProperty(Ctor.prototype, 'constructor', { value: wrapped, writable: true, configurable: true });
+  if (Ctor === realmCtors[0]) context.Function = wrapped;
+}
 
 try {
   vm.runInContext(source, vmContext, { timeout: TIMEOUT_MS });

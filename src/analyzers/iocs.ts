@@ -111,6 +111,43 @@ const MAX_DECODE_DEPTH = 2;
 const MAX_DECODE_BASE64_LEN = 1 << 20;
 
 export function extractIocs(ast: File, filePath: string): Ioc[] {
+  const scanner = createScanner();
+  traverse(ast, {
+    StringLiteral(path) {
+      scanner.scanString(path.node.value, path.node.loc, inferContext(path));
+    },
+    TemplateLiteral(path) {
+      for (const q of path.node.quasis) scanner.scanString(q.value.cooked ?? '', q.loc);
+    },
+  });
+  return scanner.results();
+}
+
+/**
+ * Fallback for input Babel can't parse (PowerShell/batch stages, text dumps,
+ * truncated fragments): scan every line of the raw text instead of string
+ * literals. Noisier than the AST path, but a parse failure must not hide IOCs.
+ */
+export function extractIocsFromText(text: string): Ioc[] {
+  const scanner = createScanner();
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const loc = { start: { line: i + 1, column: 0 } } as t.SourceLocation;
+    scanner.scanString(lines[i].replace(/\r$/, ''), loc);
+  }
+  return scanner.results();
+}
+
+/** IOCs for remote URLs an HTML page references but reaper doesn't fetch. */
+export function extractIocsFromReferences(refs: { url: string; line: number; context: string }[]): Ioc[] {
+  const scanner = createScanner();
+  for (const r of refs) {
+    scanner.scanString(r.url, { start: { line: r.line, column: 0 } } as t.SourceLocation, r.context);
+  }
+  return scanner.results();
+}
+
+function createScanner() {
   const found = new Map<string, Ioc>(); // key = type|value
   const classified = new Set<string>(); // exact values matched to a specific type
 
@@ -227,18 +264,11 @@ export function extractIocs(ast: File, filePath: string): Ioc[] {
     }
   }
 
-  traverse(ast, {
-    StringLiteral(path) {
-      scanString(path.node.value, path.node.loc, inferContext(path));
-    },
-    TemplateLiteral(path) {
-      for (const q of path.node.quasis) scanString(q.value.cooked ?? '', q.loc);
-    },
-  });
-
-  return [...found.values()].sort((a, b) =>
+  const results = (): Ioc[] => [...found.values()].sort((a, b) =>
     a.type !== b.type ? a.type.localeCompare(b.type) : a.value.localeCompare(b.value)
   );
+
+  return { scanString, results };
 }
 
 // Decode a base64 blob if it yields mostly-printable text (i.e. a nested

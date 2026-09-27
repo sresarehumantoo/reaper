@@ -10,15 +10,15 @@ import { formatJson } from './reporter/json';
 import { analyzeFileInventory, printAnalysis } from './reporter/analysis';
 import { analyzeReachability } from './analyzers/reachability';
 import { printReachability } from './reporter/reachability';
-import { extractScriptsFromHtml, isHtmlPath } from './parser/html';
+import { scanHtml, isHtmlPath, type HtmlReference } from './parser/html';
 import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import { foldConstants } from './analyzers/constfold';
-import { triageSource } from './triage';
+import { triageSource, triageReferences, verdictRank } from './triage';
 import { printTriage, formatTriageJson } from './reporter/triage';
-import { extractIocs } from './analyzers/iocs';
+import { extractIocs, extractIocsFromText, extractIocsFromReferences } from './analyzers/iocs';
 import { printIocs, formatIocsJson } from './reporter/iocs';
 import { formatSarif } from './reporter/sarif';
-import { parseFile, readSourceCapped } from './parser';
+import { parseCode, readSourceCapped } from './parser';
 import type { Finding, ReaperResult, AnalyzerOptions } from './types';
 import type { IocReport } from './reporter/iocs';
 
@@ -43,22 +43,29 @@ export interface ExpandedFile {
   originTag:   string | null;      // e.g. "data-uri-0", "script-3", or null for plain JS
 }
 
-function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; tempDir: string | null } {
+interface PageReferences {
+  originPath: string;
+  references: HtmlReference[];
+}
+
+function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; pages: PageReferences[]; tempDir: string | null } {
   const hasHtml = files.some(isHtmlPath);
   if (!hasHtml) return {
     all: files.map(p => ({ path: p, originPath: p, originTag: null })),
+    pages: [],
     tempDir: null,
   };
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reaper-'));
   const all: ExpandedFile[] = [];
+  const pages: PageReferences[] = [];
   for (const f of files) {
     if (!isHtmlPath(f)) {
       all.push({ path: f, originPath: f, originTag: null });
       continue;
     }
-    const scripts = extractScriptsFromHtml(f);
-    if (scripts.length === 0) continue;
+    const { scripts, references } = scanHtml(f);
+    if (references.length) pages.push({ originPath: f, references });
     for (const s of scripts) {
       const tag     = s.virtualPath.split('#').pop()!.replace(/\.js$/, '');
       const outPath = path.join(tempDir, `${path.basename(f, path.extname(f))}.${tag}.js`);
@@ -66,7 +73,7 @@ function expandHtmlInputs(files: string[]): { all: ExpandedFile[]; tempDir: stri
       all.push({ path: outPath, originPath: f, originTag: tag });
     }
   }
-  return { all, tempDir };
+  return { all, pages, tempDir };
 }
 
 function displayPath(cwd: string, ef: ExpandedFile): string {
@@ -101,6 +108,14 @@ program
   .action(async (pattern: string, opts) => {
     const cwd: string = path.resolve(opts.cwd);
 
+    const modes = ['rewrite', 'triage', 'iocs', 'reachability', 'analyze'].filter(m => opts[m]);
+    if (modes.length > 1) program.error(`reaper: ${modes.map(m => `--${m}`).join(', ')} are separate modes; pick one`);
+    if (!['console', 'json', 'sarif'].includes(opts.format)) {
+      program.error(`reaper: unknown --format '${opts.format}' (expected console, json or sarif)`);
+    }
+    if (opts.format === 'sarif' && modes.length) program.error('reaper: --format sarif is only available for the default scan');
+    if (opts.format !== 'console' && opts.rewrite) program.error('reaper: --rewrite writes files; --format does not apply');
+
     const matched = await glob(pattern, {
       cwd,
       absolute: true,
@@ -112,8 +127,15 @@ program
       process.exit(1);
     }
 
-    const { all: files } = expandHtmlInputs(matched);
-    if (files.length === 0) {
+    const { all: files, pages, tempDir } = expandHtmlInputs(matched);
+    if (tempDir) {
+      // The temp dir holds decoded sample payloads. Every mode ends in
+      // process.exit, so 'exit' is the one hook that always runs.
+      process.on('exit', () => fs.rmSync(tempDir, { recursive: true, force: true }));
+      for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => process.exit(130));
+    }
+    // A page that only loads remote scripts still has something to report.
+    if (files.length === 0 && !(pages.length && (opts.iocs || opts.triage))) {
       console.error(`reaper: no JS/TS sources found (matched files contained no analysable scripts)`);
       process.exit(1);
     }
@@ -179,13 +201,20 @@ program
     // ── Triage mode (--triage) ───────────────────────────────────────────────
     if (opts.triage) {
       const reports = [];
+      let failed = 0;
       for (const ef of files) {
         try {
           const src = readSourceCapped(ef.path);
           reports.push(triageSource(src, ef.path, displayPath(cwd, ef), opts.fold !== false));
         } catch (err: any) {
+          failed++;
           console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
+      }
+      for (const p of pages) {
+        const html = readSourceCapped(p.originPath);
+        reports.push(triageReferences(html, `${path.relative(cwd, p.originPath)}#external-refs`,
+          extractIocsFromReferences(p.references)));
       }
       const triageOpts = { defang: !!opts.defang };
       if (opts.format === 'json') {
@@ -196,22 +225,32 @@ program
         printTriage(reports, cwd, triageOpts);
         if (opts.output) fs.writeFileSync(opts.output, formatTriageJson(reports, triageOpts), 'utf-8');
       }
-      const worst = reports.some(r => r.verdict === 'malicious') ? 2
-        : reports.some(r => r.verdict === 'suspicious') ? 1 : 0;
-      process.exit(worst > 0 ? 1 : 0);
+      const worst = Math.max(0, ...reports.map(r => verdictRank(r.verdict)));
+      process.exit(worst === 3 ? 2 : worst > 0 || failed > 0 ? 1 : 0);
     }
 
     // ── IOC extraction mode (--iocs) ─────────────────────────────────────────
     if (opts.iocs) {
       const reports: IocReport[] = [];
+      let failed = 0;
       for (const ef of files) {
+        const file = ef.originPath + (ef.originTag ? `#${ef.originTag}` : '');
+        let src: string;
         try {
-          const ast  = parseFile(ef.path);
-          const iocs = extractIocs(ast, ef.path);
-          reports.push({ file: ef.originPath + (ef.originTag ? `#${ef.originTag}` : ''), iocs });
+          src = readSourceCapped(ef.path);
         } catch (err: any) {
-          console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
+          failed++;
+          console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
+          continue;
         }
+        try {
+          reports.push({ file, iocs: extractIocs(parseCode(src, ef.path), ef.path) });
+        } catch (err: any) {
+          reports.push({ file, iocs: extractIocsFromText(src), parseError: err.message });
+        }
+      }
+      for (const p of pages) {
+        reports.push({ file: `${p.originPath}#external-refs`, iocs: extractIocsFromReferences(p.references) });
       }
       const iocOpts = { defang: !!opts.defang };
       if (opts.format === 'json') {
@@ -223,7 +262,7 @@ program
         if (opts.output) fs.writeFileSync(opts.output, formatIocsJson(reports, iocOpts), 'utf-8');
       }
       const total = reports.reduce((s, r) => s + r.iocs.length, 0);
-      process.exit(total > 0 ? 0 : 1);
+      process.exit(total > 0 || failed > 0 ? 1 : 0);
     }
 
     // ── Reachability mode (--reachability) ───────────────────────────────────
@@ -232,7 +271,7 @@ program
         ? String(opts.entry).split(',').map((s: string) => s.trim()).filter(Boolean)
         : undefined;
 
-      const reports = [];
+      const reports: ReturnType<typeof analyzeReachability>[] = [];
       for (const ef of files) {
         try {
           reports.push(analyzeReachability(ef.path, entryPoints));
@@ -240,20 +279,15 @@ program
           console.error(`  error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
-      printReachability(reports, cwd);
-
-      if (opts.output) {
-        fs.writeFileSync(opts.output, JSON.stringify(reports, null, 2), 'utf-8');
-        console.log(`Reachability report written to ${opts.output}`);
-      }
+      emitReport(opts, JSON.stringify(reports, null, 2), () => printReachability(reports, cwd), 'Reachability report');
 
       const hasDead = reports.some(r => r.deadFns.length > 0);
-      process.exit(hasDead ? 1 : 0);
+      process.exit(hasDead || reports.length < files.length ? 1 : 0);
     }
 
     // ── Analysis mode (--analyze) ─────────────────────────────────────────────
     if (opts.analyze) {
-      const analyses = [];
+      const analyses: ReturnType<typeof analyzeFileInventory>[] = [];
       for (const ef of files) {
         try {
           analyses.push(analyzeFileInventory(ef.path));
@@ -261,15 +295,10 @@ program
           console.error(`  parse error — ${displayPath(cwd, ef)}: ${err.message}`);
         }
       }
-      printAnalysis(analyses, cwd);
-
-      if (opts.output) {
-        fs.writeFileSync(opts.output, JSON.stringify(analyses, null, 2), 'utf-8');
-        console.log(`Analysis written to ${opts.output}`);
-      }
+      emitReport(opts, JSON.stringify(analyses, null, 2), () => printAnalysis(analyses, cwd), 'Analysis');
 
       const hasDeadCode = analyses.some(a => a.deadFunctions.length > 0);
-      process.exit(hasDeadCode ? 1 : 0);
+      process.exit(hasDeadCode || analyses.length < files.length ? 1 : 0);
     }
 
     // ── Standard scan mode ────────────────────────────────────────────────────
@@ -318,7 +347,22 @@ program
       }
     }
 
-    process.exit(findings.length > 0 ? 1 : 0);
+    process.exit(findings.length > 0 || errors.length > 0 ? 1 : 0);
   });
+
+// --format json prints JSON; console prints the human report and, with
+// --output, also writes the JSON to that file.
+function emitReport(opts: { format: string; output?: string }, json: string, printConsole: () => void, label: string): void {
+  if (opts.format === 'json') {
+    if (opts.output) fs.writeFileSync(opts.output, json, 'utf-8');
+    else console.log(json);
+    return;
+  }
+  printConsole();
+  if (opts.output) {
+    fs.writeFileSync(opts.output, json, 'utf-8');
+    console.log(`${label} written to ${opts.output}`);
+  }
+}
 
 program.parse();

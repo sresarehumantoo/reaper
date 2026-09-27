@@ -16,11 +16,13 @@ import { detectAndRewriteStringArray } from './analyzers/stringarray';
 import { foldConstants } from './analyzers/constfold';
 import { analyzeObfuscation } from './analyzers/obfuscation';
 import { analyzeEncoded } from './analyzers/encoded';
-import { extractIocs } from './analyzers/iocs';
+import { extractIocs, extractIocsFromText } from './analyzers/iocs';
 import type { Finding } from './types';
 import type { Ioc } from './analyzers/iocs';
 
-export type Verdict = 'clean' | 'suspicious' | 'malicious';
+// 'unknown': analysis failed and nothing scored high enough to convict, so the
+// input must not be reported as clean.
+export type Verdict = 'clean' | 'unknown' | 'suspicious' | 'malicious';
 
 export interface TriageReport {
   file:        string;     // user-facing source name
@@ -43,13 +45,28 @@ const HIGH_SIGNAL_IOCS = new Set<Ioc['type']>([
 ]);
 const NETWORK_IOCS = new Set<Ioc['type']>(['url', 'domain', 'ipv4', 'ipv6']);
 
-export function triageSource(code: string, filePath: string, displayName: string, fold = true): TriageReport {
-  const sha256 = crypto.createHash('sha256').update(code).digest('hex');
-  const report: TriageReport = {
-    file: displayName, sha256, bytes: Buffer.byteLength(code),
-    deobfuscated: false, stringArray: null, folds: 0,
+function emptyReport(code: string, displayName: string): TriageReport {
+  return {
+    file: displayName, sha256: crypto.createHash('sha256').update(code).digest('hex'),
+    bytes: Buffer.byteLength(code), deobfuscated: false, stringArray: null, folds: 0,
     findings: [], iocs: [], score: 0, verdict: 'clean', reasons: [],
   };
+}
+
+/**
+ * Unit for the remote scripts/frames an HTML page pulls in. Listed for the
+ * analyst but not scored: nearly every benign page loads CDN scripts, and
+ * nothing behind the URL was analyzed.
+ */
+export function triageReferences(html: string, displayName: string, iocs: Ioc[]): TriageReport {
+  const report = emptyReport(html, displayName);
+  report.iocs = iocs;
+  report.reasons = ['external references, not fetched or scored'];
+  return report;
+}
+
+export function triageSource(code: string, filePath: string, displayName: string, fold = true): TriageReport {
+  const report = emptyReport(code, displayName);
 
   // ── 1. Deobfuscate: string-array rewrite then constant-fold ──────────────
   let working = code;
@@ -76,11 +93,16 @@ export function triageSource(code: string, filePath: string, displayName: string
     report.iocs = extractIocs(ast, displayName);
   } catch (e: any) {
     report.error = `analysis of deobfuscated form failed: ${e?.message ?? String(e)}`;
+    report.iocs = extractIocsFromText(working);
   }
 
   // ── 3. Score a coarse verdict ────────────────────────────────────────────
   scoreVerdict(report);
   return report;
+}
+
+export function verdictRank(v: Verdict): number {
+  return v === 'malicious' ? 3 : v === 'suspicious' ? 2 : v === 'unknown' ? 1 : 0;
 }
 
 function scoreVerdict(r: TriageReport): void {
@@ -109,7 +131,9 @@ function scoreVerdict(r: TriageReport): void {
   const viaB64 = r.iocs.filter(i => (i.context ?? '').includes('base64')).length;
   if (viaB64) { score += 2; reasons.push(`${viaB64} indicator(s) recovered from base64`); }
 
+  if (r.error) reasons.push('parse failed; IOCs from raw-text scan, no findings');
+
   r.score = score;
-  r.verdict = score >= 6 ? 'malicious' : score >= 2 ? 'suspicious' : 'clean';
+  r.verdict = score >= 6 ? 'malicious' : score >= 2 ? 'suspicious' : r.error ? 'unknown' : 'clean';
   r.reasons = [...new Set(reasons)];
 }

@@ -102,19 +102,36 @@ global.eval = function reaperEval(code) {
   return _eval.call(this, code);
 };
 
-const _Function = Function;
-global.Function = new Proxy(_Function, {
-  construct(target, args) {
-    log('new-Function', String(args.at(-1) ?? ''));
-    if (BLOCK_EVAL) throw new Error('[reaper sandbox] Function constructor blocked (REAPER_BLOCK_EVAL=1)');
-    return new target(...args);
-  },
-  apply(target, thisArg, args) {
-    log('Function-call', String(args.at(-1) ?? ''));
-    if (BLOCK_EVAL) throw new Error('[reaper sandbox] Function call blocked (REAPER_BLOCK_EVAL=1)');
-    return target.apply(thisArg, args);
-  },
-});
+function wrapFunctionCtor(Ctor, name) {
+  return new Proxy(Ctor, {
+    construct(target, args) {
+      log(`new-${name}`, String(args.at(-1) ?? ''));
+      if (BLOCK_EVAL) throw new Error(`[reaper sandbox] ${name} constructor blocked (REAPER_BLOCK_EVAL=1)`);
+      return new target(...args);
+    },
+    apply(target, thisArg, args) {
+      log(`${name}-call`, String(args.at(-1) ?? ''));
+      if (BLOCK_EVAL) throw new Error(`[reaper sandbox] ${name} call blocked (REAPER_BLOCK_EVAL=1)`);
+      return target.apply(thisArg, args);
+    },
+  });
+}
+
+// Replacing global.Function alone misses `[].constructor.constructor(...)`,
+// the usual obfuscator route, and the async/generator variants, which are
+// only reachable through a function's prototype chain. Repoint every
+// prototype's `constructor` at the wrapper too.
+global.Function = wrapFunctionCtor(Function, 'Function');
+for (const [name, fn] of [
+  ['Function',               function () {}],
+  ['AsyncFunction',          async function () {}],
+  ['GeneratorFunction',      function* () {}],
+  ['AsyncGeneratorFunction', async function* () {}],
+]) {
+  const proto = Object.getPrototypeOf(fn);
+  const wrapped = name === 'Function' ? global.Function : wrapFunctionCtor(proto.constructor, name);
+  Object.defineProperty(proto, 'constructor', { value: wrapped, writable: true, configurable: true });
+}
 
 // ── Global fetch interception (observe mode) ────────────────────────────────
 // Node 18+ exposes a global `fetch` (undici). In observe mode we replace it
