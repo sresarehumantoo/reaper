@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Static-analyzer Docker image** (top-level `Dockerfile`, `make image`). Runs the full reaper CLI without a local Node install, as a non-root user with production dependencies only, and is the recommended way to analyze an untrusted sample: the README's `docker run` flags (no network, read-only root, dropped capabilities, input mounted read-only) put a real isolation boundary around the string-array decoder and eval capture, which run sample code. A `.dockerignore` allowlist keeps `examples/` (live malware) out of the build context, and a new CI job builds the image and checks its `--rewrite --no-fold` output against the committed EtherHiding artifact.
+
+### Changed
+
+- `SECURITY.md` and the isolation comments pointed users at `docker/Dockerfile` for running reaper itself, which that image (the dynamic sandbox) cannot do, and still described `--reachability` as running in-process. Both now describe the child-process containment accurately and point at the static-analyzer image.
+
 ## [0.3.1] - 2026-09-27
 
 ### Added

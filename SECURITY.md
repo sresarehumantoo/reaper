@@ -13,9 +13,9 @@ reaper makes two distinct security claims, with different strengths:
 
 1. **The Docker sandbox at `docker/Dockerfile` + `scripts/analyze.sh` is a real isolation boundary.** It uses kernel namespaces, dropped Linux capabilities, seccomp, a read-only root filesystem, a non-root user, resource caps, no network, and no IPC. Any breakout would be a Docker / kernel vulnerability and should be reported to the corresponding upstream first.
 
-2. **The in-process VM context in `src/analyzers/evalscope.ts` is NOT an isolation boundary.** Node's `vm` module is explicitly documented as not being a security mechanism. A hostile sample analysed via `--reachability` can in principle reach the analyst's process. Mitigations in place (timeouts, stubbed globals, dropped dangerous APIs) are best-effort.
+2. **The vm work in static analysis is contained, but NOT isolated.** The obfuscator.io string-array decoder (used by `--rewrite` and `--triage`) and the eval-layer capture (`--reachability`) run sample code in Node's `vm`, which is explicitly not a security mechanism. Both run in a short-lived child process (`src/analyzers/isolate.ts`) with a heap cap, a hard wall-clock kill, frozen intrinsics, and a stripped environment, so a hang or OOM can't take down reaper and no credentials are inherited. That child still runs as your user with your filesystem access, so a `vm` escape would reach the analyst's machine.
 
-   **Recommendation:** if you are analysing a sample whose authorship you do not trust, run reaper itself inside the Docker sandbox, or use only the dynamic pipeline (`./scripts/analyze.sh ... --dynamic-only`) rather than `--reachability`.
+   **Recommendation:** if you are analysing a sample whose authorship you do not trust, run reaper itself in the static-analyzer image (top-level `Dockerfile`, `make image`) with the locked-down `docker run` flags from the README, or use only the dynamic pipeline (`./scripts/analyze.sh ... --dynamic-only`).
 
 ## Supported versions
 

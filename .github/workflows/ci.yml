@@ -66,6 +66,32 @@ jobs:
           diff build/ci/examples__etherhiding__sample.data-uri-0.deobf.js \
                examples/etherhiding/artifacts/stage1/payload.deobf.js
 
+  image:
+    name: static-analyzer image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build
+        run: docker build -t reaper:ci .
+
+      # Same --no-fold oracle as the Node job, run the way the README tells
+      # users to: no network, read-only root, input mounted read-only.
+      - name: Smoke-test the deobfuscator inside the image
+        run: |
+          mkdir -p build/ci-image
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD/examples:/work:ro" -v "$PWD/build/ci-image:/out" \
+            reaper:ci etherhiding/sample.html --rewrite /out --no-fold
+          diff build/ci-image/etherhiding__sample.data-uri-0.deobf.js \
+               examples/etherhiding/artifacts/stage1/payload.deobf.js
+
   audit:
     name: npm audit
     runs-on: ubuntu-latest
