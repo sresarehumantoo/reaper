@@ -29,3 +29,21 @@ test('reachability: folded strings attach only to their enclosing dead fn', asyn
     assert.deepEqual(v2, ['CCDD'], 'dead2 gets only its own fold');
   });
 });
+
+test('evalscope: captures atob-fed eval, Function without new, prototype and async ctors, string timers', async () => {
+  const { captureEvalScope } = await import('../src/analyzers/evalscope');
+  await withTempDir(dir => {
+    const file = path.join(dir, 'layers.js');
+    fs.writeFileSync(file, [
+      'Function("var l1 = 1;");',
+      'eval(atob("dmFyIGwyID0gMjs="));',
+      '[].constructor.constructor("var l3 = 3;");',
+      'setTimeout("var l4 = 4;", 0);',
+      '(async function () {}).constructor("var l5 = 5;");',
+    ].join('\n'));
+    const r = captureEvalScope(file);
+    assert.equal(r.error, null);
+    const sources = r.layers.map(l => l.source).join('\n');
+    for (const n of [1, 2, 3, 4, 5]) assert.ok(sources.includes(`var l${n} = ${n};`), `missing layer ${n}`);
+  });
+});
