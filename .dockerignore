@@ -1,0 +1,7 @@
+# Allowlist: the build needs only these. Everything else stays out of the
+# context, in particular examples/, which holds live malware.
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/

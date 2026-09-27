@@ -67,7 +67,32 @@ make                  # installs deps, typechecks, compiles to dist/
 npx tsx src/cli.ts <pattern>
 ```
 
-`make help` lists every available target. The common ones: `make build`, `make typecheck`, `make sandbox` (build the docker analysis image), `make demo` (deobfuscate the bundled EtherHiding fixture end-to-end), `make ci` (typecheck + artifact hash verification).
+With Docker only (no Node install), build the static-analyzer image once and run the CLI from it:
+
+```bash
+make image            # or: docker build -t reaper .
+
+docker run --rm --network none --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --cap-drop ALL --security-opt no-new-privileges \
+  -v "$PWD:/work:ro" \
+  reaper suspicious.html --triage
+```
+
+Paths are relative to the mounted directory (`/work`). The flags above are the recommended way to analyze an untrusted sample, since static analysis runs the string-array decoder and eval capture on sample code (see `SECURITY.md`). `--rewrite` needs a writable output mount; add `--user "$(id -u):$(id -g)"` so the files are owned by you:
+
+```bash
+docker run --rm --network none --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD:/work:ro" -v "$PWD/out:/out" \
+  reaper suspicious.html --rewrite /out
+```
+
+This image runs reaper itself. It is separate from the dynamic sandbox in `docker/`, which executes a sample under the monitoring shim (see "Full pipeline" below).
+
+`make help` lists every available target. The common ones: `make build`, `make typecheck`, `make image` (build the static-analyzer image), `make sandbox` (build the dynamic sandbox image), `make demo` (deobfuscate the bundled EtherHiding fixture end-to-end), `make ci` (typecheck + artifact hash verification).
 
 ## Usage
 
@@ -231,8 +256,9 @@ src/
     triage.ts           # --triage report
     analysis.ts         # --analyze inventory report
     reachability.ts     # --reachability report
+Dockerfile              # static-analyzer image: the reaper CLI without a local Node install
 docker/
-  Dockerfile            # hardened sandbox image
+  Dockerfile            # hardened dynamic sandbox image
   runner.js             # --require shim - logs eval/fetch/fs/http, supports observe/block modes
 scripts/
   analyze.sh            # combined static + dynamic pipeline
@@ -241,8 +267,8 @@ examples/               # sample inputs (incl. etherhiding/)
 
 ## Requirements
 
-- Node.js 20+
-- Docker (only required for the dynamic pipeline via `scripts/analyze.sh`)
+- Node.js 20+, or Docker to run the static-analyzer image instead
+- Docker for the dynamic pipeline (`scripts/analyze.sh`)
 
 ## License
 

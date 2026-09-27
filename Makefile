@@ -3,12 +3,14 @@
 # Common workflows:
 #   make              typecheck + compile TypeScript to dist/
 #   make help         list every available target with a short description
+#   make image        build the static-analyzer image (run reaper without Node)
 #   make sandbox      build the hardened docker analysis image
 #   make demo         deobfuscate the bundled EtherHiding fixture end-to-end
 #   make ci           the checks CI should run (typecheck + verify-examples)
 
 # ── Config (override on the command line, e.g. `make IMAGE_TAG=v2 sandbox`) ──
 IMAGE_NAME ?= reaper-sandbox
+STATIC_IMAGE ?= reaper
 IMAGE_TAG  ?= latest
 NPM        ?= npm
 NODE       ?= node
@@ -24,7 +26,7 @@ NODE_STAMP := node_modules/.install-stamp
 
 .DEFAULT_GOAL := all
 .PHONY: all help install build typecheck test clean distclean \
-        sandbox sandbox-rebuild sandbox-clean \
+        image image-clean sandbox sandbox-rebuild sandbox-clean \
         demo verify-examples ci fmt-check
 
 ## ── User-facing targets ─────────────────────────────────────────────────────
@@ -36,7 +38,7 @@ help:  ## Show this help
 	@awk 'BEGIN {FS = ":.*##"} \
 	     /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' \
 	     $(MAKEFILE_LIST)
-	@printf "\nOverridable variables: IMAGE_NAME=$(IMAGE_NAME) IMAGE_TAG=$(IMAGE_TAG)\n\n"
+	@printf "\nOverridable variables: IMAGE_NAME=$(IMAGE_NAME) STATIC_IMAGE=$(STATIC_IMAGE) IMAGE_TAG=$(IMAGE_TAG)\n\n"
 
 install: $(NODE_STAMP)  ## Install npm dependencies
 
@@ -58,6 +60,14 @@ clean:  ## Remove dist/ and build/ (keep node_modules)
 
 distclean: clean  ## Also remove node_modules (full reset)
 	rm -rf node_modules
+
+## ── Static-analyzer image ───────────────────────────────────────────────────
+
+image:  ## Build the static-analyzer image (reaper CLI, no local Node needed)
+	$(DOCKER) build -t $(STATIC_IMAGE):$(IMAGE_TAG) .
+
+image-clean:  ## Remove the static-analyzer image
+	-$(DOCKER) rmi $(STATIC_IMAGE):$(IMAGE_TAG)
 
 ## ── Docker sandbox ──────────────────────────────────────────────────────────
 
