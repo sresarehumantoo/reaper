@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: Node.js 22.18+ (or 24.11+) is now required.** Node 20 is past end of life, and the new floor matches Babel 8's `engines` range. The build stays CommonJS: Node 22.12+ can `require()` the ESM-only dependencies directly. CI now tests Node 22 and 24.
+
 ## [0.3.2] - 2026-09-27
 
 ### Added

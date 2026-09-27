@@ -18,7 +18,7 @@ make            # installs deps, typechecks, compiles to dist/
 make help       # see every target
 ```
 
-Requirements: Node 20+. Docker is optional but needed for the dynamic sandbox (`scripts/analyze.sh`).
+Requirements: Node 22.18+ (or 24.11+). Docker is optional but needed for the dynamic sandbox (`scripts/analyze.sh`).
 
 ## The development loop
 

@@ -267,7 +267,7 @@ examples/               # sample inputs (incl. etherhiding/)
 
 ## Requirements
 
-- Node.js 20+, or Docker to run the static-analyzer image instead
+- Node.js 22.18+ (or 24.11+), or Docker to run the static-analyzer image instead
 - Docker for the dynamic pipeline (`scripts/analyze.sh`)
 
 ## License
