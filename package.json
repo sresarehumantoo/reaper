@@ -25,7 +25,7 @@
     "security"
   ],
   "engines": {
-    "node": ">=20"
+    "node": "^22.18.0 || >=24.11.0"
   },
   "bin": {
     "reaper": "dist/cli.js"
@@ -43,19 +43,17 @@
     "prepublishOnly": "npm run build && npx tsc --noEmit && npm test"
   },
   "dependencies": {
-    "@babel/generator": "^7.24.0",
-    "@babel/parser": "^7.24.0",
-    "@babel/traverse": "^7.24.0",
-    "@babel/types": "^7.24.0",
+    "@babel/generator": "^8.0.6",
+    "@babel/parser": "^8.0.6",
+    "@babel/traverse": "^8.0.6",
+    "@babel/types": "^8.0.6",
     "chalk": "^4.1.2",
-    "commander": "^14.0.3",
+    "commander": "^15.0.0",
     "fast-glob": "^3.3.2",
     "tldts": "^7.4.16"
   },
   "devDependencies": {
-    "@types/babel__generator": "^7.27.0",
-    "@types/babel__traverse": "^7.20.6",
-    "@types/node": "^20.11.0",
+    "@types/node": "^22.20.4",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0"
   }

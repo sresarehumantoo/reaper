@@ -45,6 +45,17 @@ test('constfold: reaches a fixpoint across layers', () => {
   assert.match(fold(src), /"hi"/);
 });
 
+test('constfold: negative numbers fold as operands and converge in one pass', () => {
+  const r = foldConstants('var x = 1 - 3; var y = -0x10 / 4 + 2; var z = !-1; var w = 0 * -1;');
+  assert.equal(r.error, undefined);
+  assert.equal(r.passes, 1);
+  assert.equal(r.changes, 5);
+  assert.match(r.code, /x = -2;/);
+  assert.match(r.code, /y = -2;/);
+  assert.match(r.code, /z = false;/);
+  assert.match(r.code, /w = -0;/);
+});
+
 test('constfold: leaves non-constant expressions untouched', () => {
   const r = foldConstants('var x = a + b; foo(y);');
   assert.equal(r.changes, 0);

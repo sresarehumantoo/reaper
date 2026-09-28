@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: Node.js 22.18+ (or 24.11+) is now required.** Node 20 is past end of life, and the new floor matches Babel 8's `engines` range. The build stays CommonJS: Node 22.12+ can `require()` the ESM-only dependencies directly. CI now tests Node 22 and 24.
+- **Dependencies:** Babel 7 → 8 and commander 14 → 15. Babel 8 ships its own types, so `@types/babel__generator` and `@types/babel__traverse` are gone, and the parser plugins it enables by default (`classProperties`, `optionalChaining`, etc.) are no longer listed.
+
+### Fixed
+
+- **Constant folding reaches a fixpoint.** Folding `-N` produced a negative `NumericLiteral`, which regenerated as `-N`, reparsed as `-(N)` and folded again, so every file with a negative number ran all six passes and inflated the reported fold count (`md5.min.js`: 278 → 2). Negative numbers are now emitted and matched as `-<literal>`, which Babel 8 also requires (it rejects negative `NumericLiteral`s, which made the folder silently return its input unchanged). Negative hex operands now keep their hex spelling instead of being rewritten to decimal as a side effect of the extra passes.
+
 ## [0.3.2] - 2026-09-27
 
 ### Added

@@ -33,8 +33,8 @@ updates:
       # Migrating would touch every reporter file's import. Defer.
       - dependency-name: "chalk"
         update-types: ["version-update:semver-major"]
-      # @types/node must track the engines.node floor (currently >=20).
-      # @types/node 22+ adds APIs that don't exist on Node 20 — using them
+      # @types/node must track the engines.node floor (currently 22).
+      # @types/node 24+ adds APIs that don't exist on Node 22 — using them
       # would give false-positive "available" types for missing runtime.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
@@ -45,12 +45,6 @@ updates:
         update-types: ["version-update:semver-major"]
       # tsx tracks TS major versions; pin in the same group.
       - dependency-name: "tsx"
-        update-types: ["version-update:semver-major"]
-      # Babel 8 and commander 15 are ESM-only and require Node 22+, which
-      # conflicts with engines.node >=20. Revisit when the floor moves.
-      - dependency-name: "@babel/*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "commander"
         update-types: ["version-update:semver-major"]
 
   # GitHub Actions versions
