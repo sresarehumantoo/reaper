@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
 ### Changed
 
 - **Breaking: Node.js 22.18+ (or 24.11+) is now required.** Node 20 is past end of life, and the new floor matches Babel 8's `engines` range. The build stays CommonJS: Node 22.12+ can `require()` the ESM-only dependencies directly. CI now tests Node 22 and 24.
@@ -135,7 +137,8 @@ Initial public release.
 - `SECURITY.md` documents the threat model, what is and isn't an isolation boundary in reaper, and the reporting policy.
 - `prepublishOnly` script runs build + typecheck + tests before any publish.
 
-[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/sresarehumantoo/reaper/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/sresarehumantoo/reaper/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/sresarehumantoo/reaper/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sresarehumantoo/reaper/compare/v0.2.0...v0.3.0
