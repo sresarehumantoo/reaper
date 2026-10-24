@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-24
+
 ### Security
 
 - **Docker base image refreshed.** Both images move to the current `node:24-alpine` digest (Node 24.21.0 → 24.22.1), picking up the zlib fix for CVE-2026-85091 (heap buffer overflow, MEDIUM).
@@ -146,7 +148,8 @@ Initial public release.
 - `SECURITY.md` documents the threat model, what is and isn't an isolation boundary in reaper, and the reporting policy.
 - `prepublishOnly` script runs build + typecheck + tests before any publish.
 
-[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sresarehumantoo/reaper/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/sresarehumantoo/reaper/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sresarehumantoo/reaper/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/sresarehumantoo/reaper/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/sresarehumantoo/reaper/compare/v0.3.0...v0.3.1
