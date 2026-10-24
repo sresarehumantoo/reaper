@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **Docker base image refreshed.** Both images move to the current `node:24-alpine` digest (Node 24.21.0 → 24.22.1), picking up the zlib fix for CVE-2026-85091 (heap buffer overflow, MEDIUM).
+- **npm, yarn and corepack removed from both runtime images.** Neither image uses them after the build, and the npm bundled with the base image carried 14 known CVEs (5 HIGH) in `undici`, `brace-expansion`, `ip-address`, `http-cache-semantics` and `postcss-selector-parser`. This also takes a package manager out of reach of samples running in the dynamic sandbox. Trivy now reports no findings for either image.
+
+### Changed
+
+- **Dependencies:** in-range patch updates to `@babel/parser`, `@babel/traverse`, `@babel/types` (8.0.6 → 8.0.7/8.0.8), `tldts` (7.4.16 → 7.4.19, refreshed Public Suffix List data) and `@types/node`. `npm audit` reports no vulnerabilities.
+
 ## [0.4.0] - 2026-09-27
 
 ### Changed
